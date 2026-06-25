@@ -1,108 +1,97 @@
 #!/bin/bash
 set -e
 
-GCQ_DIR="/app/go-cqhttp"
-GCQ_BIN="$GCQ_DIR/go-cqhttp"
-GCQ_CONFIG="$GCQ_DIR/config.yml"
-GCQ_DEVICE="$GCQ_DIR/device.json"
-QR_FILE="$GCQ_DIR/qrcode.png"
-SESSION_FILE="$GCQ_DIR/session.token"
+# 0. Convenience symlinks for the base image layout
+NAPCAT_DIR=/app/napcat
+NAPCAT_CONFIG=$NAPCAT_DIR/config
+mkdir -p "$NAPCAT_CONFIG"
 
-mkdir -p "$GCQ_DIR"
+# 1. Write NapCat WebUI config — port 7860 for HF Spaces
+echo "[start] Writing NapCat WebUI config (port 7860)..."
+cat > "$NAPCAT_CONFIG/webui.json" << EOF
+{
+    "host": "0.0.0.0",
+    "port": 7860,
+    "token": "${WEBUI_TOKEN:-jmcomic}",
+    "loginRate": 3
+}
+EOF
 
-# ---------- 1. download go-cqhttp ----------
-if [ ! -f "$GCQ_BIN" ]; then
-    echo "[start] Downloading go-cqhttp..."
-    curl -sL "https://github.com/Mrs4s/go-cqhttp/releases/download/v1.2.0/go-cqhttp_linux_amd64.tar.gz" \
-        -o /tmp/gcq.tar.gz
-    tar -xzf /tmp/gcq.tar.gz -C "$GCQ_DIR"
-    rm /tmp/gcq.tar.gz
-    chmod +x "$GCQ_BIN" 2>/dev/null || true
+# 2. Write NapCat OneBot config — WS client → our NoneBot2
+echo "[start] Writing NapCat OneBot config..."
+cp /app/bot/config/onebot11.json "$NAPCAT_CONFIG/onebot11.json"
+chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || true
+
+# 3. Anti-detection (from upstream napcat-docker entrypoint)
+rm -rf "/tmp/.X1-lock"
+rm -f "/.dockerenv" "/.dockerinit" "/run/.containerenv" "/run/systemd/container"
+rm -f "/dev/.dockerenv" "/run/systemd/container"
+
+HNAME=$(hostname)
+if [[ "$HNAME" == *docker* || "$HNAME" == *container* || "$HNAME" == *lxc* ]] \
+   || [[ "$HNAME" =~ ^[a-f0-9]{12,}$ ]]; then
+    hostname localhost
+    echo localhost > /etc/hostname
 fi
 
-# ---------- 2. generate config ----------
-if [ ! -f "$GCQ_CONFIG" ]; then
-    echo "[start] Creating go-cqhttp config..."
-    cat > "$GCQ_CONFIG" << 'GCQ_EOF'
-account:
-  uin: 0
-  password: ''
-  encrypt: false
-  status: 0
-  max-relogin-times: 0
-  relogin-delay: 3
+mkdir -p /tmp/fake_cgroup
+FAKE=/tmp/fake_cgroup
 
-heartbeat:
-  interval: 5
+for f in /proc/self/cgroup /proc/1/cgroup; do
+    [ -f "$f" ] || continue
+    n=$(echo "$f" | tr '/' '_')
+    sed 's|/docker/|/system.slice/|g; s|/lxc/|/system.slice/|g; s|/kubepods/|/system.slice/|g; s|/containerd/|/system.slice/|g; s|/buildkit/|/system.slice/|g' \
+        "$f" > "$FAKE/$n"
+    mount --bind "$FAKE/$n" "$f" 2>/dev/null || true
+done
 
-message:
-  post-format: array
-  report-self-message: false
+# Hide Docker socket
+[ -S /var/run/docker.sock ] && mv /var/run/docker.sock /var/run/.docker.sock.hidden 2>/dev/null || true
 
-output:
-  log-level: info
-  log-force-new: true
-  log-colorful: false
+# Mask mountinfo
+for f in /proc/self/mountinfo /proc/1/mountinfo; do
+    [ -f "$f" ] || continue
+    n=$(echo "$f" | tr '/' '_')
+    sed '/docker/d; /containerd/d; /\.dockerenv/d' "$f" > "$FAKE/$n"
+    mount --bind "$FAKE/$n" "$f" 2>/dev/null || true
+done
 
-servers:
-  - ws:
-      host: 127.0.0.1
-      port: 8082
-GCQ_EOF
+if [ -f /proc/1/cmdline ]; then
+    printf '/sbin/init\0' > "$FAKE/cmdline_1"
+    mount --bind "$FAKE/cmdline_1" /proc/1/cmdline 2>/dev/null || true
 fi
 
-# ---------- 3. ensure device.json uses protocol 1 (Android Phone, supports QR) ----------
-if [ ! -f "$GCQ_DEVICE" ]; then
-    echo "[start] Generating device.json with protocol 1..."
-    # run briefly to auto-generate device.json, then kill it
-    cd "$GCQ_DIR"
-    timeout 10 "$GCQ_BIN" -c config.yml 2>/dev/null || true
-    cd /app
+# 4. Start Xvfb (virtual display)
+echo "[start] Starting Xvfb..."
+Xvfb :1 -screen 0 1080x760x16 +extension GLX +render > /dev/null 2>&1 &
+sleep 1
+export DISPLAY=:1
+
+# 5. Start QQ + NapCat in background
+echo "[start] Starting QQ + NapCat..."
+cd "$NAPCAT_DIR"
+if [ -n "${ACCOUNT}" ]; then
+    gosu napcat /opt/QQ/qq --no-sandbox -q "$ACCOUNT" &
+else
+    gosu napcat /opt/QQ/qq --no-sandbox &
 fi
+QQ_PID=$!
+cd /app/bot
 
-if [ -f "$GCQ_DEVICE" ]; then
-    python -c "
-import json
-p = '$GCQ_DEVICE'
-d = json.loads(open(p).read())
-changed = False
-if d.get('protocol') != 1:
-    d['protocol'] = 1
-    changed = True
-if changed:
-    json.dump(d, open(p, 'w'), indent=2)
-    print('[start] device.json: protocol set to 1 (Android Phone)')
-else:
-    print('[start] device.json: protocol already 1')
-"
-fi
-
-# ---------- 4. start go-cqhttp background ----------
-echo "[start] Starting go-cqhttp..."
-cd "$GCQ_DIR"
-"$GCQ_BIN" -c config.yml &
-GCQ_PID=$!
-cd /app
-
-# ---------- 5. start health server ----------
-python health.py &
-HEALTH_PID=$!
-
-# ---------- 6. wait for ready ----------
-echo "[start] Waiting for go-cqhttp..."
-for i in $(seq 1 60); do
-    if [ -f "$SESSION_FILE" ]; then
-        echo "[start] go-cqhttp ready"
+# Wait for NapCat WebUI to be ready
+echo "[start] Waiting for NapCat WebUI on port 7860..."
+for i in $(seq 1 30); do
+    if curl -sf http://127.0.0.1:7860 > /dev/null 2>&1; then
+        echo "[start] NapCat WebUI ready"
         break
-    fi
-    if [ -f "$QR_FILE" ]; then
-        : # QR generated, keep waiting for session
     fi
     sleep 2
 done
 
+# 6. Start NoneBot2 (foreground — keeps container alive)
 echo "[start] Starting NoneBot2..."
 python bot.py
 
-kill $GCQ_PID 2>/dev/null || true
-kill $HEALTH_PID 2>/dev/null || true
+# 7. Cleanup on exit
+echo "[start] NoneBot2 exited, stopping..."
+kill $QQ_PID 2>/dev/null || true

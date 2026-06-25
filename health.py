@@ -1,13 +1,30 @@
 import os
-import json
-import base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+import json
 
-GCQ_DIR = Path("/app/go-cqhttp")
-QR_FILE = GCQ_DIR / "qrcode.png"
-SESSION_FILE = GCQ_DIR / "session.token"
-CONFIG_FILE = GCQ_DIR / "config.yml"
+NAPCAT_WEBUI_PORT = 7860
+NAPCAT_CONFIG = Path("/app/napcat/config")
+QQ_DATA = Path("/app/.config/QQ")
+
+
+def has_login_session() -> bool:
+    if not QQ_DATA.exists():
+        return False
+    for child in QQ_DATA.iterdir():
+        if (child / "nt_qq.db").exists():
+            return True
+    return False
+
+
+def get_webui_token() -> str:
+    path = NAPCAT_CONFIG / "webui.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text()).get("token", "jmcomic")
+        except Exception:
+            pass
+    return "jmcomic"
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -16,30 +33,17 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
 
-        login_status = ""
-        qr_html = ""
-
-        if QR_FILE.exists():
-            with open(QR_FILE, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            qr_html = f'''
+        if has_login_session():
+            status_msg = '<p style="color:#27ae60;">✅ QQ 已登录</p><p>🤖 机器人正常运行中，在群内发送 <code>/jm &lt;本子ID&gt;</code> 即可使用</p>'
+        else:
+            token = get_webui_token()
+            status_msg = f'''
             <div style="text-align:center;">
                 <h3 style="color:#e67e22;">⏳ 等待扫码登录</h3>
-                <img src="data:image/png;base64,{b64}"
-                     style="max-width:280px;border:2px solid #ddd;border-radius:8px;"/>
-                <p style="color:#888;">请用手机 QQ 扫描上方二维码</p>
+                <p>访问下方 WebUI → 点击 <strong>QRCode</strong> → 手机 QQ 扫码</p>
+                <p style="font-size:12px;color:#999;">WebUI Token: <code style="background:#eee;padding:2px 6px;border-radius:4px;">{token}</code></p>
             </div>
             '''
-
-        if SESSION_FILE.exists():
-            login_status = '<p style="color:#27ae60;">✅ 已登录</p>'
-
-        if not qr_html and not login_status:
-            status_msg = '<p style="color:#888;">⏳ 机器人启动中，请稍候……</p>'
-        elif login_status:
-            status_msg = login_status + '<p>🤖 机器人正常运行中，在群内发送 <code>/jm &lt;本子ID&gt;</code> 即可使用</p>'
-        else:
-            status_msg = qr_html
 
         html = f'''<!DOCTYPE html>
 <html lang="zh-CN">
@@ -50,15 +54,15 @@ class HealthHandler(BaseHTTPRequestHandler):
   h1 {{ color:#2c3e50; }}
   .card {{ background:#f9f9f9; border-radius:12px; padding:30px; box-shadow:0 2px 8px rgba(0,0,0,0.1); }}
   code {{ background:#eee; padding:2px 6px; border-radius:4px; }}
+  .btn {{ display:inline-block; background:#3498db; color:#fff; padding:10px 24px; border-radius:8px; text-decoration:none; margin:10px 0; }}
 </style>
 </head><body>
 <div class="card">
 <h1>JMComic QQ Bot</h1>
 {status_msg}
 <hr style="margin:20px 0;border:none;border-top:1px solid #eee;">
-<p style="color:#aaa;font-size:14px;">
-  部署于 Hugging Face Spaces
-  <br>项目: <a href="https://github.com/hect0x7/JMComic-Crawler-Python">hect0x7/JMComic-Crawler-Python</a>
+<p style="font-size:14px;">
+  基于 NapCatQQ · 部署于 Hugging Face Spaces
 </p>
 </div></body></html>'''
         self.wfile.write(html.encode("utf-8"))
