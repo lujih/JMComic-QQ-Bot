@@ -54,12 +54,12 @@ async def _run_sync(func, *args, timeout=180):
 
 def _parse_format_flags(text: str):
     fmt = _DEFAULT_FMT
-    flags = re.findall(r'\b--(zip|longimg)\b', text)
+    flags = re.findall(r'--(zip|longimg)\b', text)
     if len(flags) >= 2:
         raise ValueError("不能同时使用 --zip 和 --longimg")
     if flags:
         fmt = flags[0]
-        text = re.sub(r'\b--(zip|longimg)\b', '', text, count=1).strip()
+        text = re.sub(r'--(zip|longimg)\b', '', text, count=1).strip()
     return text, fmt
 
 
@@ -292,12 +292,12 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
 
 
 async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Path, id_str: str, cooldown_key: str, ext='pdf', fmt_name='PDF'):
-    if file_path.stat().st_size > 100 * 1024 * 1024:
-        file_path.unlink(missing_ok=True)
-        _last_use.pop(cooldown_key, None)
-        await jm_cmd.finish(f"❌ {fmt_name} 超过 100MB，无法发送到群\n💡 试试 /jm {id_str} --zip 压缩后更小")
-
     try:
+        if file_path.stat().st_size > 100 * 1024 * 1024:
+            file_path.unlink(missing_ok=True)
+            _last_use.pop(cooldown_key, None)
+            await jm_cmd.finish(f"❌ {fmt_name} 超过 100MB，无法发送到群\n💡 试试 /jm {id_str} --zip 压缩后更小")
+
         for attempt in range(2):
             try:
                 await bot.call_api(
@@ -324,12 +324,10 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
                     await jm_cmd.send(f"❌ {fmt_name} 上传失败: {e}")
     finally:
         file_path.unlink(missing_ok=True)
-        dl_dir = _DL_TMP / f"A{id_str}"
-        if dl_dir.exists():
-            shutil.rmtree(dl_dir, ignore_errors=True)
-        p_dir = _DL_TMP / f"P{id_str}"
-        if p_dir.exists():
-            shutil.rmtree(p_dir, ignore_errors=True)
+        for prefix in ('A', 'P'):
+            d = _DL_TMP / f"{prefix}{id_str}"
+            if d.exists():
+                shutil.rmtree(d, ignore_errors=True)
 
 
 async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):

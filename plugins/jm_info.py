@@ -12,13 +12,10 @@ __plugin_name__ = "jm_info"
 __plugin_usage__ = "/jmv <ID> — 查看本子详情\n/jms <关键字> — 搜索本子"
 
 OPTION_PATH = Path(__file__).parent.parent / "option.yml"
-_option_cache = None
+_option_cache = create_option_by_file(str(OPTION_PATH))
 
 
 def _get_option():
-    global _option_cache
-    if _option_cache is None:
-        _option_cache = create_option_by_file(str(OPTION_PATH))
     return _option_cache
 
 
@@ -58,7 +55,7 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent):
         f"📖 {album.name}",
         f"🆔 JM{album.id}",
         f"✍️ 作者: {album.author}",
-        f"📄 章节数: {len(list(album))}",
+        f"📄 章节数: {len(album)}",
         f"🖼️ 总页数: {album.page_count}",
         f"🏷️ 标签: {tags_str}",
     ]
