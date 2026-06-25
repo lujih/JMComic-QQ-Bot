@@ -1,0 +1,21 @@
+dir_rule:
+  base_dir: /tmp/jm_dl/
+  rule: Bd_Aid
+
+client:
+  impl: api
+  retry_times: 3
+  postman:
+    meta_data:
+      timeout: 30
+
+download:
+  image:
+    suffix: .jpg
+
+plugin:
+  after_album:
+    - plugin: img2pdf
+      kwargs:
+        pdf_dir: /tmp/jm/
+        delete_original_file: true
