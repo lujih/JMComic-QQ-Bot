@@ -4,7 +4,8 @@ import itertools
 from pathlib import Path
 
 from nonebot import on_command
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
+from nonebot.params import CommandArg
 
 from jmcomic import create_option_by_file
 
@@ -32,8 +33,8 @@ jms_cmd = on_command("jms", priority=10)
 
 
 @jmv_cmd.handle()
-async def handle_jmv(bot: Bot, event: GroupMessageEvent):
-    text = event.get_plaintext().strip()
+async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
+    text = msg.extract_plain_text().strip()
     match = re.search(r"\d+", text)
     if not match:
         await jmv_cmd.finish("格式: /jmv <本子ID>\n例如: /jmv 438516")
@@ -66,8 +67,8 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent):
 
 
 @jms_cmd.handle()
-async def handle_jms(bot: Bot, event: GroupMessageEvent):
-    text = event.get_plaintext().strip()
+async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
+    text = msg.extract_plain_text().strip()
     if not text:
         await jms_cmd.finish("格式: /jms <关键词>\n例如: /jms 无修正")
 

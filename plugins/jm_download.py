@@ -7,7 +7,8 @@ import tempfile
 from pathlib import Path
 
 from nonebot import on_command
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
+from nonebot.params import CommandArg
 
 from jmcomic import create_option_by_file, Feature, JmDownloader
 
@@ -129,8 +130,8 @@ jm_cmd = on_command("jm", priority=10)
 
 
 @jm_cmd.handle()
-async def handle_jm(bot: Bot, event: GroupMessageEvent):
-    text = event.get_plaintext().strip()
+async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
+    text = msg.extract_plain_text().strip()
 
     # strip format flags first, so routing doesn't break (e.g. "random --zip")
     try:
