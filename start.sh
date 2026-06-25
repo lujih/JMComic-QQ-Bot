@@ -44,6 +44,7 @@ rm -f "$QR_FILE"
 
 # ---------- 4. start lagrange background ----------
 echo "[start] Starting Lagrange.OneBot..."
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 cd "$LAGRANGE_DIR"
 "$LAGRANGE_BIN" &
 LAG_PID=$!
