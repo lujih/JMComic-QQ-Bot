@@ -8,8 +8,7 @@ from pathlib import Path
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 
-import jmcomic
-from jmcomic import create_option_by_file, Feature
+from jmcomic import create_option_by_file, Feature, JmDownloader
 
 __plugin_name__ = "jm_download"
 __plugin_usage__ = (
@@ -63,6 +62,27 @@ HELP_TEXT = (
     "每日早 9:00            自动推送随机推荐到群"
 )
 
+class ProgressJmDownloader(JmDownloader):
+    def __init__(self, option, progress_cb, photo_count):
+        super().__init__(option)
+        self._cb = progress_cb
+        self._photo_count = photo_count
+        self._photo_idx = 0
+
+    def before_photo(self, photo):
+        super().before_photo(photo)
+        self._photo_idx += 1
+        self._cb(f"📄 [{self._photo_idx}/{self._photo_count}] {photo.name}")
+
+    def after_photo(self, photo):
+        super().after_photo(photo)
+        self._cb(f"✅ 第{self._photo_idx}章完成 ({len(photo)}张图)")
+
+    def after_album(self, album):
+        self._cb("📄 正在生成 PDF……")
+        super().after_album(album)
+
+
 jm_cmd = on_command("jm", priority=10)
 
 
@@ -108,27 +128,54 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent):
 
 
 async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, cooldown_key: str):
-    await jm_cmd.send(f"⏳ 正在下载 JM{album_id} 并生成 PDF……")
+    group_id = event.group_id
+    loop = asyncio.get_running_loop()
+
+    def progress(msg: str):
+        try:
+            asyncio.run_coroutine_threadsafe(
+                bot.send_group_msg(group_id=group_id, message=msg),
+                loop,
+            )
+        except Exception:
+            pass
+
+    progress(f"⏳ 正在下载 JM{album_id} 并生成 PDF……")
 
     pdf_path = Path(f"/tmp/jm/{album_id}.pdf")
     pdf_path.unlink(missing_ok=True)
 
-    # check disk space
     usage = shutil.disk_usage("/tmp")
     if usage.free < 500 * 1024 * 1024:
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
-    try:
-        option = _get_option()
-        async with _semaphore:
-            await _run_sync(jmcomic.download_album, album_id, option, timeout=300)
-    except asyncio.TimeoutError:
-        _last_use.pop(cooldown_key, None)
-        await jm_cmd.finish("❌ 下载超时，请稍后再试")
-    except Exception as e:
-        _last_use.pop(cooldown_key, None)
-        await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
+    option = _get_option()
+
+    def _dl():
+        dler = ProgressJmDownloader(option, progress, photo_count=0)
+        with dler:
+            album = dler.client.get_album_detail(album_id)
+            dler._photo_count = len(album)
+            dler.download_by_album_detail(album)
+            dler.raise_if_has_exception()
+        return album, dler
+
+    for attempt in range(2):
+        try:
+            async with _semaphore:
+                await _run_sync(_dl, timeout=300)
+            break
+        except asyncio.TimeoutError:
+            if attempt == 0:
+                progress("🔄 下载超时，正在重试……")
+                await asyncio.sleep(3)
+            else:
+                _last_use.pop(cooldown_key, None)
+                await jm_cmd.finish("❌ 下载超时，请稍后再试")
+        except Exception as e:
+            _last_use.pop(cooldown_key, None)
+            await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
 
     if not pdf_path.exists():
         _last_use.pop(cooldown_key, None)
@@ -138,7 +185,19 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
 
 
 async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, cooldown_key: str):
-    await jm_cmd.send(f"⏳ 正在下载章节 p{photo_id} 并生成 PDF……")
+    group_id = event.group_id
+    loop = asyncio.get_running_loop()
+
+    def progress(msg: str):
+        try:
+            asyncio.run_coroutine_threadsafe(
+                bot.send_group_msg(group_id=group_id, message=msg),
+                loop,
+            )
+        except Exception:
+            pass
+
+    progress(f"⏳ 正在下载章节 p{photo_id} 并生成 PDF……")
 
     pdf_path = Path(f"/tmp/jm/{photo_id}.pdf")
     pdf_path.unlink(missing_ok=True)
@@ -148,20 +207,33 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
-    try:
-        option = _get_option()
-        extra = Feature.export_pdf(pdf_dir="/tmp/jm/")
-        async with _semaphore:
-            await _run_sync(
-                lambda: jmcomic.download_photo(photo_id, option, extra=extra),
-                timeout=120,
-            )
-    except asyncio.TimeoutError:
-        _last_use.pop(cooldown_key, None)
-        await jm_cmd.finish("❌ 下载超时，请稍后再试")
-    except Exception as e:
-        _last_use.pop(cooldown_key, None)
-        await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
+    option = _get_option()
+    extra = Feature.export_pdf(pdf_dir="/tmp/jm/")
+
+    def _dl():
+        dler = ProgressJmDownloader(option, progress, photo_count=1)
+        with dler:
+            photo = dler.client.get_photo_detail(photo_id)
+            dler.add_features(extra, 'download_photo')
+            dler.download_by_photo_detail(photo)
+            dler.raise_if_has_exception()
+        return photo, dler
+
+    for attempt in range(2):
+        try:
+            async with _semaphore:
+                await _run_sync(_dl, timeout=120)
+            break
+        except asyncio.TimeoutError:
+            if attempt == 0:
+                progress("🔄 下载超时，正在重试……")
+                await asyncio.sleep(3)
+            else:
+                _last_use.pop(cooldown_key, None)
+                await jm_cmd.finish("❌ 下载超时，请稍后再试")
+        except Exception as e:
+            _last_use.pop(cooldown_key, None)
+            await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
 
     if not pdf_path.exists():
         _last_use.pop(cooldown_key, None)
