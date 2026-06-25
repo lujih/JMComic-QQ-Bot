@@ -2,7 +2,7 @@
 set -e
 
 LAGRANGE_DIR="/app/lagrange"
-LAGRANGE_CONFIG="$LAGRANGE_DIR/config.json"
+LAGRANGE_CONFIG="$LAGRANGE_DIR/appsettings.json"
 QR_FILE="$LAGRANGE_DIR/qr.png"
 SIGN_FILE="$LAGRANGE_DIR/keystore.json"
 
