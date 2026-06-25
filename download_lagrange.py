@@ -10,7 +10,6 @@ REPO = "LagrangeDev/Lagrange.Core"
 LAGRANGE_DIR = Path("/app/lagrange")
 BIN = LAGRANGE_DIR / "Lagrange.OneBot"
 
-# 仓库已归档，只有 nightly prerelease，无法用 /releases/latest
 NIGHTLY_TAG = "nightly"
 FALLBACK_URL = (
     "https://github.com/LagrangeDev/Lagrange.Core/releases/download/"
@@ -18,14 +17,28 @@ FALLBACK_URL = (
 )
 
 
+def _extract_binary(tar_path: str) -> bool:
+    """解压 tar.gz 到临时目录，找到 Lagrange.OneBot 拷贝到最终位置"""
+    extract_dir = Path(tempfile.mkdtemp())
+    try:
+        with tarfile.open(tar_path, "r:gz") as t:
+            t.extractall(path=extract_dir, filter='data')
+        for f in extract_dir.rglob("Lagrange.OneBot"):
+            if f.is_file():
+                BIN.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, BIN)
+                return True
+        return BIN.exists()
+    finally:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+
+
 def get_first_release():
     url = f"https://api.github.com/repos/{REPO}/releases?per_page=1"
     with urlopen(url) as r:
         data = json.loads(r.read().decode())
     if data:
-        tag = data[0]["tag_name"]
-        assets = data[0]["assets"]
-        return tag, assets
+        return data[0]["tag_name"], data[0]["assets"]
     return None, []
 
 
@@ -34,28 +47,16 @@ def download_asset(assets):
         name = a["name"]
         url = a["browser_download_url"]
         sl = name.lower()
-        is_linux = "linux" in sl
-        is_x64 = "x64" in sl or "x86_64" in sl
-        if not (is_linux and is_x64):
+        if not ("linux" in sl and ("x64" in sl or "x86_64" in sl)):
             continue
         if name.endswith((".tar.gz", ".tgz")):
             print(f"[dl] Downloading {name}...")
             tmp = tempfile.mktemp(suffix=".tar.gz")
             try:
                 urlretrieve(url, tmp)
-                with tarfile.open(tmp, "r:gz") as t:
-                    t.extractall(path=LAGRANGE_DIR)
-                for f in LAGRANGE_DIR.rglob("Lagrange.OneBot"):
-                    if f.is_file():
-                        shutil.copy2(f, BIN)
-                        break
-                for f in LAGRANGE_DIR.rglob("Lagrange.OneBot*"):
-                    if f.is_file() and f.suffix not in (".tar.gz", ".tgz"):
-                        shutil.copy2(f, BIN)
-                        break
+                return _extract_binary(tmp)
             finally:
                 Path(tmp).unlink(missing_ok=True)
-            return BIN.exists()
         if any(name.endswith(s) for s in (".zip", ".md5", ".sha256", ".sig", ".json")):
             continue
         print(f"[dl] Downloading {name}...")
@@ -65,19 +66,13 @@ def download_asset(assets):
 
 
 def download_fallback():
-    print(f"[dl] Fallback: downloading nightly...")
+    print("[dl] Fallback: downloading nightly...")
     tmp = tempfile.mktemp(suffix=".tar.gz")
     try:
         urlretrieve(FALLBACK_URL, tmp)
-        with tarfile.open(tmp, "r:gz") as t:
-            t.extractall(path=LAGRANGE_DIR)
-        for f in LAGRANGE_DIR.rglob("Lagrange.OneBot"):
-            if f.is_file():
-                shutil.copy2(f, BIN)
-                break
+        return _extract_binary(tmp)
     finally:
         Path(tmp).unlink(missing_ok=True)
-    return BIN.exists()
 
 
 def main():
