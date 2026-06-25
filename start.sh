@@ -26,6 +26,7 @@ if [ ! -f "$GCQ_CONFIG" ]; then
 account:
   uin: 0
   password: ''
+  protocol: 1
   encrypt: false
   status: 0
   max-relogin-times: 0
