@@ -37,6 +37,10 @@ echo "[start] Writing NapCat OneBot config..."
 cp /app/bot/config/onebot11.json "$NAPCAT_CONFIG/onebot11.json"
 chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || true
 
+# 3a. Ensure NapCat temp dir exists and is writable by napcat user
+mkdir -p /app/.config/QQ/NapCat/temp
+chown -R napcat:napcat /app/.config/QQ 2>/dev/null || true
+
 # 4. Anti-detection (from upstream napcat-docker entrypoint)
 rm -rf "/tmp/.X1-lock"
 rm -f "/.dockerenv" "/.dockerinit" "/run/.containerenv" "/run/systemd/container"
