@@ -4,9 +4,10 @@ import base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-LAGRANGE_DIR = Path("/app/lagrange")
-QR_FILE = LAGRANGE_DIR / "qr.png"
-CONFIG_FILE = LAGRANGE_DIR / "config.json"
+GCQ_DIR = Path("/app/go-cqhttp")
+QR_FILE = GCQ_DIR / "qrcode.png"
+SESSION_FILE = GCQ_DIR / "session.token"
+CONFIG_FILE = GCQ_DIR / "config.yml"
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -30,14 +31,8 @@ class HealthHandler(BaseHTTPRequestHandler):
             </div>
             '''
 
-        if CONFIG_FILE.exists():
-            try:
-                cfg = json.loads(CONFIG_FILE.read_text())
-                uin = cfg.get("Account", {}).get("Uin", 0)
-                if uin and uin != 0:
-                    login_status = f'<p style="color:#27ae60;">✅ 已登录 QQ 账号: {uin}</p>'
-            except Exception:
-                pass
+        if SESSION_FILE.exists():
+            login_status = '<p style="color:#27ae60;">✅ 已登录</p>'
 
         if not qr_html and not login_status:
             status_msg = '<p style="color:#888;">⏳ 机器人启动中，请稍候……</p>'
