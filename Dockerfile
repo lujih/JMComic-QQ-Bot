@@ -7,12 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4-openssl-dev \
     libssl-dev \
     wget \
-    unzip \
     ca-certificates \
+    file \
     && rm -rf /var/lib/apt/lists/*
-
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    nb-cli
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
@@ -20,10 +17,7 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
 
 COPY . .
 
-RUN mkdir -p /app/lagrange
-
 ENV ENVIRONMENT=prod
-
 EXPOSE 7860
 
 CMD ["bash", "start.sh"]

@@ -2,7 +2,6 @@
 set -e
 
 LAGRANGE_DIR="/app/lagrange"
-LAGRANGE_BIN="$LAGRANGE_DIR/Lagrange.OneBot"
 LAGRANGE_CONFIG="$LAGRANGE_DIR/config.json"
 QR_FILE="$LAGRANGE_DIR/qr.png"
 SIGN_FILE="$LAGRANGE_DIR/keystore.json"
@@ -10,16 +9,12 @@ SIGN_FILE="$LAGRANGE_DIR/keystore.json"
 mkdir -p "$LAGRANGE_DIR"
 
 # ---------- 1. download lagrange binary ----------
-if [ ! -f "$LAGRANGE_BIN" ]; then
-    echo "[start] Downloading Lagrange.OneBot..."
-    LAG_TAG=$(curl -sL https://api.github.com/repos/LagrangeDev/Lagrange.Core/releases/latest \
-        | grep tag_name | head -1 | cut -d'"' -f4)
-    if [ -z "$LAG_TAG" ]; then
-        LAG_TAG="v0.4.0"
-    fi
-    curl -sL "https://github.com/LagrangeDev/Lagrange.Core/releases/download/${LAG_TAG}/Lagrange.OneBot-linux-x64" \
-        -o "$LAGRANGE_BIN"
-    chmod +x "$LAGRANGE_BIN"
+python download_lagrange.py
+
+LAGRANGE_BIN=$(find "$LAGRANGE_DIR" -name "Lagrange.OneBot" -type f | head -1)
+if [ -z "$LAGRANGE_BIN" ]; then
+    echo "[start] Lagrange.OneBot binary not found!"
+    exit 1
 fi
 
 # ---------- 2. generate config if not exists ----------
@@ -50,7 +45,7 @@ rm -f "$QR_FILE"
 # ---------- 4. start lagrange background ----------
 echo "[start] Starting Lagrange.OneBot..."
 cd "$LAGRANGE_DIR"
-"$LAGRANGE_BIN" --config "$LAGRANGE_CONFIG" &
+"$LAGRANGE_BIN" &
 LAG_PID=$!
 cd /app
 
@@ -62,10 +57,15 @@ HEALTH_PID=$!
 echo "[start] Waiting for Lagrange to be ready..."
 for i in $(seq 1 30); do
     if [ -f "$SIGN_FILE" ]; then
+        echo "[start] Lagrange ready (keystore found)"
         break
+    fi
+    if [ -f "$QR_FILE" ]; then
+        echo "[start] QR code generated, waiting for scan..."
     fi
     sleep 2
 done
+
 echo "[start] Starting NoneBot2..."
 python bot.py
 
