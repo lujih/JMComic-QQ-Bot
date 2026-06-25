@@ -15,10 +15,19 @@ __plugin_usage__ = (
     "/jm <ID> — 下载本子\n"
     "/jm p<ID> — 下载单章\n"
     "/jm rank [周/月/日] — 排行榜\n"
-    "/jm random — 随机一本"
+    "/jm random — 随机一本\n"
+    "/jm help — 查看全部命令"
 )
 
 COOLDOWN_SECONDS = 60
+
+FORMAT_MAP = {
+    'pdf':     (Feature.export_pdf,     'pdf', 'PDF'),
+    'zip':     (Feature.export_zip,     'zip', 'ZIP'),
+    'longimg': (Feature.export_long_img, 'png', '长图'),
+}
+
+_DEFAULT_FMT = 'pdf'
 _last_use: dict[str, float] = {}
 _semaphore = asyncio.Semaphore(1)
 OPTION_PATH = Path(__file__).parent.parent / "option.yml"
@@ -40,6 +49,20 @@ async def _run_sync(func, *args, timeout=180):
     )
 
 
+def _parse_format_flags(text: str):
+    fmt = _DEFAULT_FMT
+    for flag, name in [('--zip', 'zip'), ('--longimg', 'longimg')]:
+        if flag in text:
+            fmt = name
+            text = text.replace(flag, '').strip()
+            break
+    return text, fmt
+
+
+def _is_cache_valid(path: Path, max_age=1800):
+    return path.exists() and time.time() - path.stat().st_mtime < max_age
+
+
 def _check_cooldown(key: str) -> int:
     now = time.time()
     last = _last_use.get(key, 0)
@@ -52,34 +75,49 @@ def _check_cooldown(key: str) -> int:
 
 HELP_TEXT = (
     "📖 JMComic QQ Bot 命令列表\n\n"
-    "/jm <本子ID>        下载本子并发送 PDF\n"
-    "/jm p<章节ID>       下载单个章节\n"
-    "/jm rank [周/月/日]  查看排行榜（默认周榜）\n"
-    "/jm random          随机推荐一本\n"
-    "/jm help            显示本帮助\n\n"
-    "/jmv <ID>           查看本子详情\n"
-    "/jms <关键词>       搜索本子\n"
-    "每日早 9:00            自动推送随机推荐到群"
+    "/jm <本子ID>            下载本子（默认 PDF）\n"
+    "/jm <本子ID> --zip      下载并打包为 ZIP\n"
+    "/jm <本子ID> --longimg  下载并拼接为长图\n"
+    "/jm p<章节ID>           下载单个章节\n"
+    "/jm rank [周/月/日]     查看排行榜（默认周榜）\n"
+    "/jm random             随机推荐一本\n"
+    "/jm help               显示本帮助\n\n"
+    "/jmv <ID>               查看本子详情\n"
+    "/jms <关键词>           搜索本子\n"
+    "每日早 9:00             自动推送随机推荐到群"
 )
 
 class ProgressJmDownloader(JmDownloader):
-    def __init__(self, option, progress_cb, photo_count):
+    def __init__(self, option, progress_cb, photo_count, fmt_name='PDF'):
         super().__init__(option)
         self._cb = progress_cb
         self._photo_count = photo_count
         self._photo_idx = 0
+        self._fmt_name = fmt_name
+
+    def _should_report(self, idx):
+        total = self._photo_count
+        if total <= 5:
+            return True
+        if idx in (1, total):
+            return True
+        prev_pct = (idx - 1) * 10 // total
+        curr_pct = idx * 10 // total
+        return prev_pct != curr_pct
 
     def before_photo(self, photo):
         super().before_photo(photo)
         self._photo_idx += 1
-        self._cb(f"📄 [{self._photo_idx}/{self._photo_count}] {photo.name}")
+        if self._should_report(self._photo_idx):
+            self._cb(f"📄 [{self._photo_idx}/{self._photo_count}] {photo.name}")
 
     def after_photo(self, photo):
         super().after_photo(photo)
-        self._cb(f"✅ 第{self._photo_idx}章完成 ({len(photo)}张图)")
+        if self._should_report(self._photo_idx):
+            self._cb(f"✅ 第{self._photo_idx}章完成 ({len(photo)}张图)")
 
     def after_album(self, album):
-        self._cb("📄 正在生成 PDF……")
+        self._cb(f"📄 正在生成 {self._fmt_name}……")
         super().after_album(album)
 
 
@@ -120,16 +158,18 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent):
         return
 
     # album download
-    match = re.search(r"\d+", text)
+    clean_text, fmt = _parse_format_flags(text)
+    match = re.search(r"\d+", clean_text)
     if not match:
         await jm_cmd.finish("格式: /jm <本子ID>\n例如: /jm 438516")
 
-    await _download_album(bot, event, match.group(), cooldown_key)
+    await _download_album(bot, event, match.group(), cooldown_key, fmt)
 
 
-async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, cooldown_key: str):
+async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, cooldown_key: str, fmt=_DEFAULT_FMT):
     group_id = event.group_id
     loop = asyncio.get_running_loop()
+    feature_cls, ext, fmt_name = FORMAT_MAP[fmt]
 
     def progress(msg: str):
         try:
@@ -140,10 +180,16 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
         except Exception:
             pass
 
-    progress(f"⏳ 正在下载 JM{album_id} 并生成 PDF……")
+    out_path = Path(f"/tmp/jm/{album_id}.{ext}")
 
-    pdf_path = Path(f"/tmp/jm/{album_id}.pdf")
-    pdf_path.unlink(missing_ok=True)
+    if _is_cache_valid(out_path):
+        progress(f"📦 命中缓存，直接发送 {fmt_name}……")
+        await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)
+        return
+
+    progress(f"⏳ 正在下载 JM{album_id} 并生成 {fmt_name}……")
+
+    out_path.unlink(missing_ok=True)
 
     usage = shutil.disk_usage("/tmp")
     if usage.free < 500 * 1024 * 1024:
@@ -151,12 +197,14 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
     option = _get_option()
+    extra = feature_cls(**{f'{ext}_dir' if ext != 'png' else 'img_dir': '/tmp/jm/'}, filename_rule='Aid')
 
     def _dl():
-        dler = ProgressJmDownloader(option, progress, photo_count=0)
+        dler = ProgressJmDownloader(option, progress, photo_count=0, fmt_name=fmt_name)
         with dler:
             album = dler.client.get_album_detail(album_id)
             dler._photo_count = len(album)
+            dler.add_features(extra, 'download_album')
             dler.download_by_album_detail(album)
             dler.raise_if_has_exception()
         return album, dler
@@ -177,11 +225,11 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
             _last_use.pop(cooldown_key, None)
             await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
 
-    if not pdf_path.exists():
+    if not out_path.exists():
         _last_use.pop(cooldown_key, None)
-        await jm_cmd.finish("❌ PDF 生成失败，文件未找到")
+        await jm_cmd.finish(f"❌ {fmt_name} 生成失败，文件未找到")
 
-    await _upload_and_cleanup(bot, event, pdf_path, album_id, cooldown_key)
+    await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)
 
 
 async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, cooldown_key: str):
@@ -208,7 +256,7 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
     option = _get_option()
-    extra = Feature.export_pdf(pdf_dir="/tmp/jm/")
+    extra = Feature.export_pdf(pdf_dir="/tmp/jm/", filename_rule='Pid')
 
     def _dl():
         dler = ProgressJmDownloader(option, progress, photo_count=1)
@@ -242,24 +290,38 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
     await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
 
 
-async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, pdf_path: Path, id_str: str, cooldown_key: str):
-    if pdf_path.stat().st_size > 100 * 1024 * 1024:
-        pdf_path.unlink(missing_ok=True)
+async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Path, id_str: str, cooldown_key: str, ext='pdf', fmt_name='PDF'):
+    if file_path.stat().st_size > 100 * 1024 * 1024:
+        file_path.unlink(missing_ok=True)
         _last_use.pop(cooldown_key, None)
-        await jm_cmd.finish("❌ PDF 超过 100MB，无法发送到群")
+        await jm_cmd.finish(f"❌ {fmt_name} 超过 100MB，无法发送到群\n💡 试试 /jm {id_str} --zip 压缩后更小")
 
-    try:
-        await bot.call_api(
-            "upload_group_file",
-            group_id=event.group_id,
-            file=str(pdf_path.resolve()),
-            name=f"JM{id_str}.pdf",
-        )
-        await jm_cmd.send(f"✅ JM{id_str} 下载完成，PDF 已发送到群")
-    except Exception as e:
-        await jm_cmd.send(f"PDF 文件已生成但发送失败: {e}\n可联系管理员手动获取")
+    for attempt in range(2):
+        try:
+            await bot.call_api(
+                "upload_group_file",
+                group_id=event.group_id,
+                file=str(file_path.resolve()),
+                name=f"JM{id_str}.{ext}",
+            )
+            await jm_cmd.send(f"✅ JM{id_str} 下载完成，{fmt_name} 已发送到群")
+            return
+        except Exception as e:
+            if attempt == 0:
+                await asyncio.sleep(2)
+            else:
+                user_id = event.user_id
+                try:
+                    await bot.send_private_msg(
+                        user_id=user_id,
+                        message=f"JM{id_str} 下载已完成，但群文件上传失败: {e}\n"
+                                f"请在群内重试，或尝试 /jm {id_str} --zip",
+                    )
+                except Exception:
+                    pass
+                await jm_cmd.send(f"❌ {fmt_name} 上传失败: {e}")
     finally:
-        pdf_path.unlink(missing_ok=True)
+        file_path.unlink(missing_ok=True)
         dl_dir = Path(f"/tmp/jm_dl/A{id_str}")
         if dl_dir.exists():
             shutil.rmtree(dl_dir, ignore_errors=True)

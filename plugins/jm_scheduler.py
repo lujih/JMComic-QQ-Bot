@@ -1,4 +1,5 @@
 import os
+import time
 import asyncio
 import random
 from pathlib import Path
@@ -74,3 +75,20 @@ async def daily_recommend():
             await bot.send_msg(message_type="group", group_id=gid, message=text)
         except Exception as e:
             jm_log("scheduler.error", f"每日推荐：发送到群 {gid} 失败 — {e}")
+
+
+@scheduler.scheduled_job("cron", hour="*", minute="30", id="cleanup_cache")
+async def cleanup_cache():
+    cache_dir = Path("/tmp/jm/")
+    if not cache_dir.exists():
+        return
+
+    now = time.time()
+    removed = 0
+    for f in cache_dir.iterdir():
+        if f.is_file() and now - f.stat().st_mtime > 1800:
+            f.unlink(missing_ok=True)
+            removed += 1
+
+    if removed > 0:
+        jm_log("scheduler.info", f"缓存清理：已删除 {removed} 个过期文件")

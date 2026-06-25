@@ -13,10 +13,4 @@ download:
   image:
     suffix: .jpg
 
-plugin:
-  after_album:
-    - plugin: img2pdf
-      kwargs:
-        pdf_dir: /tmp/jm/
-        filename_rule: Aid
-        delete_original_file: true
+
