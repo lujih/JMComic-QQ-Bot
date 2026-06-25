@@ -17,12 +17,27 @@ cat > "$NAPCAT_CONFIG/webui.json" << EOF
 }
 EOF
 
-# 2. Write NapCat OneBot config — WS client → our NoneBot2
+# 2. Unpack NapCat Shell (if not yet done — base image skips this at build)
+if [ ! -f "$NAPCAT_DIR/napcat.mjs" ]; then
+    echo "[start] Unpacking NapCat.Shell.zip..."
+    unzip -q /app/NapCat.Shell.zip -d /tmp/NapCat.Shell
+    cp -rf /tmp/NapCat.Shell/* "$NAPCAT_DIR/"
+    rm -rf /tmp/NapCat.Shell
+fi
+
+if [ ! -f "$NAPCAT_CONFIG/napcat.json" ]; then
+    echo "[start] Copying default NapCat configs..."
+    unzip -q /app/NapCat.Shell.zip -d /tmp/NapCat.Shell
+    cp -rf /tmp/NapCat.Shell/config/* "$NAPCAT_CONFIG/"
+    rm -rf /tmp/NapCat.Shell
+fi
+
+# 3. Write NapCat OneBot config — WS client → our NoneBot2
 echo "[start] Writing NapCat OneBot config..."
 cp /app/bot/config/onebot11.json "$NAPCAT_CONFIG/onebot11.json"
 chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || true
 
-# 3. Anti-detection (from upstream napcat-docker entrypoint)
+# 4. Anti-detection (from upstream napcat-docker entrypoint)
 rm -rf "/tmp/.X1-lock"
 rm -f "/.dockerenv" "/.dockerinit" "/run/.containerenv" "/run/systemd/container"
 rm -f "/dev/.dockerenv" "/run/systemd/container"
@@ -61,7 +76,7 @@ if [ -f /proc/1/cmdline ]; then
     mount --bind "$FAKE/cmdline_1" /proc/1/cmdline 2>/dev/null || true
 fi
 
-# 4. Background: monitor QQ login and sync onebot11 config per account
+# 5. Background: monitor QQ login and sync onebot11 config per account
 sync_onebot11_config() {
     while true; do
         sleep 10
@@ -80,13 +95,13 @@ sync_onebot11_config() {
 }
 sync_onebot11_config &
 
-# 5. Start Xvfb (virtual display)
+# 6. Start Xvfb (virtual display)
 echo "[start] Starting Xvfb..."
 Xvfb :1 -screen 0 1080x760x16 +extension GLX +render > /dev/null 2>&1 &
 sleep 1
 export DISPLAY=:1
 
-# 5. Start QQ + NapCat in background
+# 7. Start QQ + NapCat in background
 echo "[start] Starting QQ + NapCat..."
 cd "$NAPCAT_DIR"
 if [ -n "${ACCOUNT}" ]; then
