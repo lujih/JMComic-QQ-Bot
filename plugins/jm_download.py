@@ -59,7 +59,8 @@ HELP_TEXT = (
     "/jm random          随机推荐一本\n"
     "/jm help            显示本帮助\n\n"
     "/jmv <ID>           查看本子详情\n"
-    "/jms <关键词>       搜索本子"
+    "/jms <关键词>       搜索本子\n"
+    "每日早 9:00            自动推送随机推荐到群"
 )
 
 jm_cmd = on_command("jm", priority=10)
@@ -187,7 +188,7 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, pdf_path: Path
         await jm_cmd.send(f"PDF 文件已生成但发送失败: {e}\n可联系管理员手动获取")
     finally:
         pdf_path.unlink(missing_ok=True)
-        dl_dir = Path(f"/tmp/jm_dl/{id_str}")
+        dl_dir = Path(f"/tmp/jm_dl/A{id_str}")
         if dl_dir.exists():
             shutil.rmtree(dl_dir, ignore_errors=True)
 

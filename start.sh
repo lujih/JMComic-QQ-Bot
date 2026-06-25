@@ -116,7 +116,7 @@ fi
 QQ_PID=$!
 cd /app/bot
 
-# Wait for NapCat WebUI to be ready
+# 8. Wait for NapCat WebUI to be ready
 echo "[start] Waiting for NapCat WebUI on port 7860..."
 for i in $(seq 1 30); do
     if curl -sf http://127.0.0.1:7860 > /dev/null 2>&1; then
@@ -126,10 +126,10 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
-# 6. Start NoneBot2 (foreground — keeps container alive)
+# 9. Start NoneBot2 (foreground — keeps container alive)
 echo "[start] Starting NoneBot2..."
 python bot.py
 
-# 7. Cleanup on exit
+# 10. Cleanup on exit
 echo "[start] NoneBot2 exited, stopping..."
 kill $QQ_PID 2>/dev/null || true
