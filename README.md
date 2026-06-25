@@ -1,3 +1,12 @@
+---
+title: JMComic QQ Bot
+emoji: 🤖
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # JMComic QQ Bot — Hugging Face Spaces 部署
 
 > 对接 QQ 机器人，群内发送 `/jm <本子ID>` 即可下载并转为 PDF 发送到群。
