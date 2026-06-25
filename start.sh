@@ -61,7 +61,26 @@ if [ -f /proc/1/cmdline ]; then
     mount --bind "$FAKE/cmdline_1" /proc/1/cmdline 2>/dev/null || true
 fi
 
-# 4. Start Xvfb (virtual display)
+# 4. Background: monitor QQ login and sync onebot11 config per account
+sync_onebot11_config() {
+    while true; do
+        sleep 10
+        for d in /app/.config/QQ/*/; do
+            [ -d "$d" ] || continue
+            [ -f "${d}nt_qq.db" ] || continue
+            qq=$(basename "$d")
+            target="$NAPCAT_CONFIG/onebot11_${qq}.json"
+            if [ ! -f "$target" ]; then
+                cp /app/bot/config/onebot11.json "$target"
+                chown napcat:napcat "$target" 2>/dev/null || true
+                echo "[start] Synced onebot11 config for account $qq"
+            fi
+        done
+    done
+}
+sync_onebot11_config &
+
+# 5. Start Xvfb (virtual display)
 echo "[start] Starting Xvfb..."
 Xvfb :1 -screen 0 1080x760x16 +extension GLX +render > /dev/null 2>&1 &
 sleep 1

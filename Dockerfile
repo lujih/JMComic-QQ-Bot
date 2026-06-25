@@ -19,6 +19,9 @@ RUN pip install --no-cache-dir \
 COPY . /app/bot
 WORKDIR /app/bot
 
+# 清掉基镜像的 ENTRYPOINT ["bash", "entrypoint.sh"]，避免合并执行
+ENTRYPOINT []
+
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
