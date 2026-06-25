@@ -3,6 +3,7 @@ import time
 import random
 import asyncio
 import shutil
+import tempfile
 from pathlib import Path
 
 from nonebot import on_command
@@ -30,6 +31,8 @@ FORMAT_MAP = {
 _DEFAULT_FMT = 'pdf'
 _last_use: dict[str, float] = {}
 _semaphore = asyncio.Semaphore(1)
+_TMP_DIR = Path(tempfile.gettempdir()) / "jm"
+_DL_TMP = Path(tempfile.gettempdir()) / "jm_dl"
 OPTION_PATH = Path(__file__).parent.parent / "option.yml"
 _option_cache = None
 
@@ -51,11 +54,12 @@ async def _run_sync(func, *args, timeout=180):
 
 def _parse_format_flags(text: str):
     fmt = _DEFAULT_FMT
-    for flag, name in [('--zip', 'zip'), ('--longimg', 'longimg')]:
-        if flag in text:
-            fmt = name
-            text = text.replace(flag, '').strip()
-            break
+    flags = re.findall(r'\b--(zip|longimg)\b', text)
+    if len(flags) >= 2:
+        raise ValueError("不能同时使用 --zip 和 --longimg")
+    if flags:
+        fmt = flags[0]
+        text = re.sub(r'\b--(zip|longimg)\b', '', text, count=1).strip()
     return text, fmt
 
 
@@ -128,6 +132,12 @@ jm_cmd = on_command("jm", priority=10)
 async def handle_jm(bot: Bot, event: GroupMessageEvent):
     text = event.get_plaintext().strip()
 
+    # strip format flags first, so routing doesn't break (e.g. "random --zip")
+    try:
+        text, fmt = _parse_format_flags(text)
+    except ValueError as e:
+        await jm_cmd.finish(f"❌ {e}")
+
     # help
     if text == "help":
         await jm_cmd.finish(HELP_TEXT)
@@ -142,6 +152,12 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent):
     if text == "random":
         await _handle_random(bot, event)
         return
+
+    # 检查 /jm 123456 p789 这类多余参数（/jm p123 是合法的单章下载）
+    tokens = text.split()
+    photo_tokens = [t for t in tokens if re.match(r'^p\d+$', t)]
+    if len(tokens) >= 2 and photo_tokens:
+        await jm_cmd.finish("格式: /jm <本子ID>\n下载单章请用 /jm p<章节ID>")
 
     # cooldown
     cooldown_key = f"{event.group_id}:{event.user_id}"
@@ -158,8 +174,7 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent):
         return
 
     # album download
-    clean_text, fmt = _parse_format_flags(text)
-    match = re.search(r"\d+", clean_text)
+    match = re.search(r"\d+", text)
     if not match:
         await jm_cmd.finish("格式: /jm <本子ID>\n例如: /jm 438516")
 
@@ -180,7 +195,7 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
         except Exception:
             pass
 
-    out_path = Path(f"/tmp/jm/{album_id}.{ext}")
+    out_path = _TMP_DIR / f"{album_id}.{ext}"
 
     if _is_cache_valid(out_path):
         progress(f"📦 命中缓存，直接发送 {fmt_name}……")
@@ -191,13 +206,13 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
 
     out_path.unlink(missing_ok=True)
 
-    usage = shutil.disk_usage("/tmp")
+    usage = shutil.disk_usage(tempfile.gettempdir())
     if usage.free < 500 * 1024 * 1024:
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
     option = _get_option()
-    extra = feature_cls(**{f'{ext}_dir' if ext != 'png' else 'img_dir': '/tmp/jm/'}, filename_rule='Aid')
+    extra = feature_cls(**{f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR) + '/'}, filename_rule='Aid')
 
     def _dl():
         dler = ProgressJmDownloader(option, progress, photo_count=0, fmt_name=fmt_name)
@@ -207,23 +222,16 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
             dler.add_features(extra, 'download_album')
             dler.download_by_album_detail(album)
             dler.raise_if_has_exception()
-        return album, dler
 
-    for attempt in range(2):
-        try:
-            async with _semaphore:
-                await _run_sync(_dl, timeout=300)
-            break
-        except asyncio.TimeoutError:
-            if attempt == 0:
-                progress("🔄 下载超时，正在重试……")
-                await asyncio.sleep(3)
-            else:
-                _last_use.pop(cooldown_key, None)
-                await jm_cmd.finish("❌ 下载超时，请稍后再试")
-        except Exception as e:
-            _last_use.pop(cooldown_key, None)
-            await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
+    try:
+        async with _semaphore:
+            await _run_sync(_dl, timeout=300)
+    except asyncio.TimeoutError:
+        _last_use.pop(cooldown_key, None)
+        await jm_cmd.finish("❌ 下载超时，请稍后再试")
+    except Exception as e:
+        _last_use.pop(cooldown_key, None)
+        await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
 
     if not out_path.exists():
         _last_use.pop(cooldown_key, None)
@@ -247,16 +255,16 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
 
     progress(f"⏳ 正在下载章节 p{photo_id} 并生成 PDF……")
 
-    pdf_path = Path(f"/tmp/jm/{photo_id}.pdf")
+    pdf_path = _TMP_DIR / f"{photo_id}.pdf"
     pdf_path.unlink(missing_ok=True)
 
-    usage = shutil.disk_usage("/tmp")
+    usage = shutil.disk_usage(tempfile.gettempdir())
     if usage.free < 500 * 1024 * 1024:
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
     option = _get_option()
-    extra = Feature.export_pdf(pdf_dir="/tmp/jm/", filename_rule='Pid')
+    extra = Feature.export_pdf(pdf_dir=str(_TMP_DIR) + '/', filename_rule='Pid')
 
     def _dl():
         dler = ProgressJmDownloader(option, progress, photo_count=1)
@@ -265,23 +273,16 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
             dler.add_features(extra, 'download_photo')
             dler.download_by_photo_detail(photo)
             dler.raise_if_has_exception()
-        return photo, dler
 
-    for attempt in range(2):
-        try:
-            async with _semaphore:
-                await _run_sync(_dl, timeout=120)
-            break
-        except asyncio.TimeoutError:
-            if attempt == 0:
-                progress("🔄 下载超时，正在重试……")
-                await asyncio.sleep(3)
-            else:
-                _last_use.pop(cooldown_key, None)
-                await jm_cmd.finish("❌ 下载超时，请稍后再试")
-        except Exception as e:
-            _last_use.pop(cooldown_key, None)
-            await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
+    try:
+        async with _semaphore:
+            await _run_sync(_dl, timeout=120)
+    except asyncio.TimeoutError:
+        _last_use.pop(cooldown_key, None)
+        await jm_cmd.finish("❌ 下载超时，请稍后再试")
+    except Exception as e:
+        _last_use.pop(cooldown_key, None)
+        await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
 
     if not pdf_path.exists():
         _last_use.pop(cooldown_key, None)
@@ -296,35 +297,39 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish(f"❌ {fmt_name} 超过 100MB，无法发送到群\n💡 试试 /jm {id_str} --zip 压缩后更小")
 
-    for attempt in range(2):
-        try:
-            await bot.call_api(
-                "upload_group_file",
-                group_id=event.group_id,
-                file=str(file_path.resolve()),
-                name=f"JM{id_str}.{ext}",
-            )
-            await jm_cmd.send(f"✅ JM{id_str} 下载完成，{fmt_name} 已发送到群")
-            return
-        except Exception as e:
-            if attempt == 0:
-                await asyncio.sleep(2)
-            else:
-                user_id = event.user_id
-                try:
-                    await bot.send_private_msg(
-                        user_id=user_id,
-                        message=f"JM{id_str} 下载已完成，但群文件上传失败: {e}\n"
-                                f"请在群内重试，或尝试 /jm {id_str} --zip",
-                    )
-                except Exception:
-                    pass
-                await jm_cmd.send(f"❌ {fmt_name} 上传失败: {e}")
+    try:
+        for attempt in range(2):
+            try:
+                await bot.call_api(
+                    "upload_group_file",
+                    group_id=event.group_id,
+                    file=str(file_path.resolve()),
+                    name=f"JM{id_str}.{ext}",
+                )
+                await jm_cmd.send(f"✅ JM{id_str} 下载完成，{fmt_name} 已发送到群")
+                return
+            except Exception as e:
+                if attempt == 0:
+                    await asyncio.sleep(2)
+                else:
+                    user_id = event.user_id
+                    try:
+                        await bot.send_private_msg(
+                            user_id=user_id,
+                            message=f"JM{id_str} 下载已完成，但群文件上传失败: {e}\n"
+                                    f"请在群内重试，或尝试 /jm {id_str} --zip",
+                        )
+                    except Exception:
+                        pass
+                    await jm_cmd.send(f"❌ {fmt_name} 上传失败: {e}")
     finally:
         file_path.unlink(missing_ok=True)
-        dl_dir = Path(f"/tmp/jm_dl/A{id_str}")
+        dl_dir = _DL_TMP / f"A{id_str}"
         if dl_dir.exists():
             shutil.rmtree(dl_dir, ignore_errors=True)
+        p_dir = _DL_TMP / f"P{id_str}"
+        if p_dir.exists():
+            shutil.rmtree(p_dir, ignore_errors=True)
 
 
 async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):

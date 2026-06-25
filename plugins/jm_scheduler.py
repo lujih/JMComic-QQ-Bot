@@ -2,6 +2,7 @@ import os
 import time
 import asyncio
 import random
+import tempfile
 from pathlib import Path
 
 from nonebot import require, get_bot
@@ -79,7 +80,7 @@ async def daily_recommend():
 
 @scheduler.scheduled_job("cron", hour="*", minute="30", id="cleanup_cache")
 async def cleanup_cache():
-    cache_dir = Path("/tmp/jm/")
+    cache_dir = Path(tempfile.gettempdir()) / "jm"
     if not cache_dir.exists():
         return
 

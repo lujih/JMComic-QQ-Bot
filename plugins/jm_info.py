@@ -1,5 +1,6 @@
 import re
 import asyncio
+import itertools
 from pathlib import Path
 
 from nonebot import on_command
@@ -47,6 +48,8 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent):
         option = _get_option()
         client = option.build_jm_client()
         album = await _run_sync(client.get_album_detail, album_id)
+    except asyncio.TimeoutError:
+        await jmv_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:
         await jmv_cmd.finish(f"❌ 查询失败: {e}")
 
@@ -77,10 +80,12 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent):
         option = _get_option()
         client = option.build_jm_client()
         page = await _run_sync(client.search_site, text, 1)
+    except asyncio.TimeoutError:
+        await jms_cmd.finish("❌ 搜索超时，请稍后再试")
     except Exception as e:
         await jms_cmd.finish(f"❌ 搜索失败: {e}")
 
-    results = list(page)[:10]
+    results = list(itertools.islice(page, 10))
     if not results:
         await jms_cmd.finish("❌ 未找到相关结果")
 
