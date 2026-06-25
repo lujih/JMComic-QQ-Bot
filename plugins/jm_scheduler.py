@@ -87,7 +87,13 @@ async def cleanup_cache():
     now = time.time()
     removed = 0
     for f in cache_dir.iterdir():
-        if f.is_file() and now - f.stat().st_mtime > 1800:
+        if not f.is_file():
+            continue
+        try:
+            age = now - f.stat().st_mtime
+        except OSError:
+            continue
+        if age > 1800:
             f.unlink(missing_ok=True)
             removed += 1
 

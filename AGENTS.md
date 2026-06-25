@@ -99,6 +99,36 @@ pip install -e path/to/JMComic-Crawler-Python
 - 30 分钟短时缓存（`/tmp/jm/{id}.ext`），定时每 30 分钟清理过期缓存
 - 下载后自动清理原始图片（`dir_rule: Bd_Aid → /tmp/jm_dl/A{id}/` 及 `P{id}/`）
 
+## 下一步发展计划 — 签到积分系统
+
+### 架构
+```
+plugins/database.py ← SQLite (WAL + threading.Lock) — 用户/签到/配置表
+plugins/jm_checkin.py — /sign 签到
+plugins/jm_admin.py   — /jmadmin 管理命令
+jm_download.py 改造   — 每日免费额度 + 积分扣减
+```
+
+### 数据库表
+- `users(user_id, group_id, points, daily_free, last_download_date, total_downloads, created_at, is_admin)`
+- `checkins(id, user_id, group_id, checkin_date, streak, points_earned)`
+- `config(group_id, key, value)` — 群内配置
+
+### 优先级
+
+#### P0 — 核心闭环（签到 → 消耗）
+1. `plugins/database.py`: SQLite WAL + Lock, get_user/ensure_user/add_points/deduct_points_if_possible/check_daily_quota
+2. `plugins/jm_checkin.py`: /sign → +10 基础 + 连续 7d+10 / 30d+30
+3. 改造 `_download_album`: 每日免费 N 次（默认 3）→ 超出扣 5 积分 → 不足提示签到
+
+#### P1 — 管理命令 + 体验优化
+- `/jmadmin setpoints @user N` / `config free_daily N` / `config download_cost N`
+- 权限：群管理员 + 超级用户白名单
+- 搜索增强、错误提示带积分信息
+
+#### P2 — 运维加固
+- 定时 VACUUM 防膨胀、写操作统一锁路径、跨群配置持久化
+
 ## 关联仓库
 
 - jmcomic 库源码：`path/to/JMComic-Crawler-Python`

@@ -35,6 +35,10 @@ fi
 # 3. Write NapCat OneBot config — WS client → our NoneBot2
 echo "[start] Writing NapCat OneBot config..."
 cp /app/bot/config/onebot11.json "$NAPCAT_CONFIG/onebot11.json"
+# 注入 OneBot token（非空时替换）
+if [ -n "${ONEBOT_TOKEN}" ]; then
+    sed -i "s/\${ONEBOT_TOKEN}/${ONEBOT_TOKEN}/g" "$NAPCAT_CONFIG/onebot11.json"
+fi
 chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || true
 
 # 3a. Ensure NapCat temp dir exists and is writable by napcat user
@@ -91,6 +95,10 @@ sync_onebot11_config() {
             target="$NAPCAT_CONFIG/onebot11_${qq}.json"
             if [ ! -f "$target" ]; then
                 cp /app/bot/config/onebot11.json "$target"
+                # 注入 OneBot token（非空时替换）
+                if [ -n "${ONEBOT_TOKEN}" ]; then
+                    sed -i "s/\${ONEBOT_TOKEN}/${ONEBOT_TOKEN}/g" "$target"
+                fi
                 chown napcat:napcat "$target" 2>/dev/null || true
                 echo "[start] Synced onebot11 config for account $qq"
             fi
