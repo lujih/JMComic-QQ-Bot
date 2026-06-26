@@ -72,9 +72,8 @@ def _is_cache_valid(path: Path, max_age=1800):
     return path.exists() and time.time() - path.stat().st_mtime < max_age
 
 
-def _make_out_path(id_str: str, ext: str, cooldown_key: str) -> Path:
-    safe_key = cooldown_key.replace(':', '_')
-    return _TMP_DIR / f"{id_str}_{safe_key}.{ext}"
+def _make_out_path(id_str: str, ext: str) -> Path:
+    return _TMP_DIR / f"{id_str}.{ext}"
 
 
 def _check_cooldown(key: str) -> int:
@@ -183,7 +182,7 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
         except Exception:
             pass
 
-    out_path = _make_out_path(album_id, ext, cooldown_key)
+    out_path = _make_out_path(album_id, ext)
 
     usage = shutil.disk_usage(tempfile.gettempdir())
     if usage.free < 500 * 1024 * 1024:
@@ -253,7 +252,7 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
         except Exception:
             pass
 
-    pdf_path = _make_out_path(photo_id, 'pdf', cooldown_key)
+    pdf_path = _make_out_path(photo_id, 'pdf')
 
     usage = shutil.disk_usage(tempfile.gettempdir())
     if usage.free < 500 * 1024 * 1024:
