@@ -62,7 +62,7 @@ pip install -e path/to/JMComic-Crawler-Python
 - 并发控制：全局 `asyncio.Semaphore(1)` 串行化下载
 - `wait_for` 超时后底层线程无法取消（Python 线程语义），可能游离。已移除超时重试循环避免并发写
 - 回调进度：`asyncio.run_coroutine_threadsafe` 从 sync 线程发消息
-- `ProgressJmDownloader` 子类化 `JmDownloader`，覆盖 `before_photo`/`after_photo`/`after_album` 钩子实现分段推送
+- `ProgressJmDownloader` 子类化 `JmDownloader`，覆盖 `after_album` 钩子在 PDF 生成前推送状态；`before_photo` 和 `after_photo` 已移除（Phase 2 精简），下载前一次性展示本子详情
 
 ### jmcomic Feature 机制
 - 格式（PDF/ZIP/长图）通过 `Feature.export_*` 作为 `extra` 参数传入，不写在 `option.yml` plugin 段
@@ -92,12 +92,12 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### 限制与行为
 - 每人每群 60 秒冷却（仅下载，rank/random/help 无冷却）
-- 进度推送按 10% 阈值节流（≤5 章全报，大本子只报第 1/10%/每 10%/最后一章）
+- 下载前一次性展示本子详情（名称/作者/章节/页数/标签），不再发逐章进度
 - 下载超时直接结束（无自动重试，避免线程竞态），jmcomic 内部已有 3 次重试
-- PDF 超 100MB 跳过群上传，私聊通知用户（建议 `--zip` 压缩）
-- 群文件上传失败自动重试 1 次→仍失败则私聊 fallback
+- PDF/ZIP/长图超 100MB 跳过上传，提示 `--zip` 压缩
+- 群文件上传失败自动重试 1 次
 - 30 分钟短时缓存（`/tmp/jm/{id}.ext`），定时每 30 分钟清理过期缓存
-- 下载后自动清理原始图片（`dir_rule: Bd_Aid → /tmp/jm_dl/A{id}/` 及 `P{id}/`）
+- 下载后自动清理原始图片（`/tmp/jm_dl/A{id}/` 及 `P{id}/`）
 
 ## 下一步发展计划 — 签到积分系统
 

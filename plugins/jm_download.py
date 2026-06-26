@@ -5,6 +5,7 @@ import asyncio
 import threading
 import shutil
 import tempfile
+from collections import OrderedDict
 from pathlib import Path
 
 from nonebot import on_command
@@ -31,7 +32,10 @@ FORMAT_MAP = {
 }
 
 _DEFAULT_FMT = 'pdf'
-_last_use: dict[str, float] = {}
+_last_use: OrderedDict[str, float] = OrderedDict()
+_MAX_COOLDOWN_ENTRIES = 10000
+_cancel_event = threading.Event()
+
 _semaphore = asyncio.Semaphore(1)
 _TMP_DIR = Path(tempfile.gettempdir()) / "jm"
 _DL_TMP = Path(tempfile.gettempdir()) / "jm_dl"
@@ -60,11 +64,14 @@ async def _run_sync(func, *args, timeout=180):
 def _parse_format_flags(text: str):
     fmt = _DEFAULT_FMT
     flags = re.findall(r'--(zip|longimg)\b', text)
-    if len(flags) >= 2:
+    unique = set(flags)
+    if len(unique) >= 2:
         raise ValueError("不能同时使用 --zip 和 --longimg")
-    if flags:
-        fmt = flags[0]
-        text = re.sub(r'--(zip|longimg)\b', '', text, count=1).strip()
+    if len(flags) > len(unique):
+        raise ValueError(f"重复使用了 --{flags[0]}，请只指定一次")
+    if unique:
+        fmt = list(unique)[0]
+        text = re.sub(r'--(zip|longimg)\b', '', text).strip()
     return text, fmt
 
 
@@ -78,11 +85,17 @@ def _make_out_path(id_str: str, ext: str) -> Path:
 
 def _check_cooldown(key: str) -> int:
     now = time.time()
+    # 惰性清理：限制字典大小
+    while len(_last_use) > _MAX_COOLDOWN_ENTRIES:
+        _last_use.popitem(last=False)
+
     last = _last_use.get(key, 0)
     remaining = COOLDOWN_SECONDS - (now - last)
     if remaining > 0:
         return int(remaining)
+
     _last_use[key] = now
+    _last_use.move_to_end(key)
     return 0
 
 
@@ -107,6 +120,8 @@ class ProgressJmDownloader(JmDownloader):
         self._fmt_name = fmt_name
 
     def after_album(self, album):
+        if _cancel_event.is_set():
+            return
         self._cb(f"📄 正在生成 {self._fmt_name}……")
         super().after_album(album)
 
@@ -208,7 +223,7 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
 
     out_path.unlink(missing_ok=True)
 
-    extra = feature_cls(**{f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR) + '/'}, filename_rule='Aid')
+    extra = feature_cls(**{f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR / '')}, filename_rule='Aid')
 
     def _dl():
         dler = ProgressJmDownloader(option, progress, fmt_name=fmt_name)
@@ -219,8 +234,10 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
 
     try:
         async with _semaphore:
+            _cancel_event.clear()
             await _run_sync(_dl, timeout=300)
     except asyncio.TimeoutError:
+        _cancel_event.set()
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish("❌ 下载超时，请稍后再试")
     except Exception as e:
@@ -272,7 +289,7 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
 
     pdf_path.unlink(missing_ok=True)
 
-    extra = Feature.export_pdf(pdf_dir=str(_TMP_DIR) + '/', filename_rule='Pid')
+    extra = Feature.export_pdf(pdf_dir=str(_TMP_DIR / ''), filename_rule='Pid')
 
     def _dl():
         dler = ProgressJmDownloader(option, progress)
@@ -283,8 +300,10 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
 
     try:
         async with _semaphore:
+            _cancel_event.clear()
             await _run_sync(_dl, timeout=120)
     except asyncio.TimeoutError:
+        _cancel_event.set()
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish("❌ 下载超时，请稍后再试")
     except Exception as e:

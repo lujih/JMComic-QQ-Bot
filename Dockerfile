@@ -24,7 +24,8 @@ ENTRYPOINT []
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
-ENV WEBUI_TOKEN=jmcomic
+ARG WEBUI_TOKEN=jmcomic
+ENV WEBUI_TOKEN=${WEBUI_TOKEN}
 ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
 EXPOSE 7860 8080

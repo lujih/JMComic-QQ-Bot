@@ -37,7 +37,13 @@ echo "[start] Writing NapCat OneBot config..."
 cp /app/bot/config/onebot11.json "$NAPCAT_CONFIG/onebot11.json"
 # 注入 OneBot token（非空时替换）
 if [ -n "${ONEBOT_TOKEN}" ]; then
-    sed -i "s/\${ONEBOT_TOKEN}/${ONEBOT_TOKEN}/g" "$NAPCAT_CONFIG/onebot11.json"
+    python3 -c "
+import os, sys
+path = '$NAPCAT_CONFIG/onebot11.json'
+data = open(path).read()
+data = data.replace('\${ONEBOT_TOKEN}', os.environ['ONEBOT_TOKEN'])
+open(path, 'w').write(data)
+"
 fi
 chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || true
 
@@ -97,7 +103,13 @@ sync_onebot11_config() {
                 cp /app/bot/config/onebot11.json "$target"
                 # 注入 OneBot token（非空时替换）
                 if [ -n "${ONEBOT_TOKEN}" ]; then
-                    sed -i "s/\${ONEBOT_TOKEN}/${ONEBOT_TOKEN}/g" "$target"
+                    python3 -c "
+import os
+path = '$target'
+data = open(path).read()
+data = data.replace('\${ONEBOT_TOKEN}', os.environ['ONEBOT_TOKEN'])
+open(path, 'w').write(data)
+"
                 fi
                 chown napcat:napcat "$target" 2>/dev/null || true
                 echo "[start] Synced onebot11 config for account $qq"

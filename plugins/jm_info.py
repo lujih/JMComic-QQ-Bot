@@ -1,6 +1,7 @@
 import re
 import asyncio
 import itertools
+import threading
 from pathlib import Path
 
 from nonebot import on_command
@@ -13,14 +14,20 @@ __plugin_name__ = "jm_info"
 __plugin_usage__ = "/jmv <ID> — 查看本子详情\n/jms <关键字> — 搜索本子"
 
 OPTION_PATH = Path(__file__).parent.parent / "option.yml"
-_option_cache = create_option_by_file(str(OPTION_PATH))
+_option_cache = None
+_option_lock = threading.Lock()
 
 
 def _get_option():
+    global _option_cache
+    if _option_cache is None:
+        with _option_lock:
+            if _option_cache is None:
+                _option_cache = create_option_by_file(str(OPTION_PATH))
     return _option_cache
 
 
-async def _run_sync(func, *args, timeout=30):
+async def _run_sync(func, *args, timeout=60):
     loop = asyncio.get_running_loop()
     return await asyncio.wait_for(
         loop.run_in_executor(None, lambda: func(*args)),
