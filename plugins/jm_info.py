@@ -1,30 +1,15 @@
 import re
 import asyncio
 import itertools
-import threading
-from pathlib import Path
 
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 
-from jmcomic import create_option_by_file
+from plugins._option import get_option as _get_option
 
 __plugin_name__ = "jm_info"
 __plugin_usage__ = "/jmv <ID> — 查看本子详情\n/jms <关键字> — 搜索本子"
-
-OPTION_PATH = Path(__file__).parent.parent / "option.yml"
-_option_cache = None
-_option_lock = threading.Lock()
-
-
-def _get_option():
-    global _option_cache
-    if _option_cache is None:
-        with _option_lock:
-            if _option_cache is None:
-                _option_cache = create_option_by_file(str(OPTION_PATH))
-    return _option_cache
 
 
 async def _run_sync(func, *args, timeout=60):

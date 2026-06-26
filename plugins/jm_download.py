@@ -12,7 +12,8 @@ from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 
-from jmcomic import create_option_by_file, Feature, JmDownloader
+from jmcomic import Feature, JmDownloader
+from plugins._option import get_option as _get_option
 
 __plugin_name__ = "jm_download"
 __plugin_usage__ = (
@@ -39,18 +40,6 @@ _cancel_event = threading.Event()
 _semaphore = asyncio.Semaphore(1)
 _TMP_DIR = Path(tempfile.gettempdir()) / "jm"
 _DL_TMP = Path(tempfile.gettempdir()) / "jm_dl"
-OPTION_PATH = Path(__file__).parent.parent / "option.yml"
-_option_cache = None
-_option_lock = threading.Lock()
-
-
-def _get_option():
-    global _option_cache
-    if _option_cache is None:
-        with _option_lock:
-            if _option_cache is None:
-                _option_cache = create_option_by_file(str(OPTION_PATH))
-    return _option_cache
 
 
 async def _run_sync(func, *args, timeout=180):
@@ -223,7 +212,7 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
 
     out_path.unlink(missing_ok=True)
 
-    extra = feature_cls(**{f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR / '')}, filename_rule='Aid')
+    extra = feature_cls(**{f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR)}, filename_rule='Aid')
 
     def _dl():
         dler = ProgressJmDownloader(option, progress, fmt_name=fmt_name)
@@ -289,7 +278,7 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
 
     pdf_path.unlink(missing_ok=True)
 
-    extra = Feature.export_pdf(pdf_dir=str(_TMP_DIR / ''), filename_rule='Pid')
+    extra = Feature.export_pdf(pdf_dir=str(_TMP_DIR), filename_rule='Pid')
 
     def _dl():
         dler = ProgressJmDownloader(option, progress)

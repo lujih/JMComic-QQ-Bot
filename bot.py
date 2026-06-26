@@ -1,5 +1,4 @@
 import os
-import sys
 
 os.environ.setdefault("ENVIRONMENT", "prod")
 

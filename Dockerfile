@@ -31,6 +31,6 @@ ENV FFMPEG_PATH=/usr/bin/ffmpeg
 EXPOSE 7860 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD curl -sf http://127.0.0.1:8080/ || exit 1
+  CMD ps aux | grep -q "[p]ython.*bot.py"
 
 CMD ["bash", "/app/start.sh"]
