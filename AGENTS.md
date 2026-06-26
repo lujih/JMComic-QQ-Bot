@@ -1,4 +1,4 @@
-# AGENTS.md — jmcomic-qq-bot
+# AGENTS.md — JMComic-QQ-Bot
 
 ## 架构
 
@@ -16,13 +16,6 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 
 架构翻转：NoneBot2 做 WS 服务器（`:8080`），NapCat 做 WS 客户端连接。
 
-## HF Space
-
-- **Space**: `https://huggingface.co/spaces/your-username/jmcomic-qq-bot`
-- **本地仓库**: `path/to/jmcomic-qq-bot`
-- **SDK**: Docker
-- **登录方式**: 推送 → 自动构建 → 打开 Space → NapCat WebUI 扫码
-
 ## 关键文件
 
 | 文件 | 作用 |
@@ -34,7 +27,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `plugins/jm_info.py` | `/jmv` 详情 + `/jms` 搜索 |
 | `plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`）+ 每 30 分钟缓存清理 |
 | `option.yml` | jmcomic 配置（`impl: api`，无 plugin 段，格式由 Feature 传入） |
-| `Dockerfile` | 基于 `mlikiowa/napcat-docker:v4.18.7` + Python venv + ffmpeg |
+| `Dockerfile` | 基于 `mlikiowa/napcat-docker` + Python venv + ffmpeg |
 | `start.sh` | 容器入口：反检测 → Xvfb → QQ 后台 → NoneBot 前台 |
 
 ## 开发命令
@@ -67,7 +60,7 @@ pip install -e path/to/JMComic-Crawler-Python
 ### jmcomic Feature 机制
 - 格式（PDF/ZIP/长图）通过 `Feature.export_*` 作为 `extra` 参数传入，不写在 `option.yml` plugin 段
 - `after_album` 下 `photo=None`，`filename_rule` 必须用 `A` 前缀（如 `Aid`）；单章下载用 `Pid`
-- 详见 jmcomic 库的 `AGENTS.md` → `path/to/JMComic-Crawler-Python\AGENTS.md`
+- 详见 jmcomic 库的 `AGENTS.md`
 
 ### 部署
 - 首次部署需通过 NapCat WebUI 扫码登录 QQ 小号
@@ -128,7 +121,3 @@ jm_download.py 改造   — 每日免费额度 + 积分扣减
 
 #### P2 — 运维加固
 - 定时 VACUUM 防膨胀、写操作统一锁路径、跨群配置持久化
-
-## 关联仓库
-
-- jmcomic 库源码：`path/to/JMComic-Crawler-Python`
