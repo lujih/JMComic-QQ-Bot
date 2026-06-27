@@ -7,3 +7,5 @@ Pillow
 pycryptodome
 curl-cffi
 httpx
+cloudscraper>=1.2.68
+beautifulsoup4>=4.11.0
