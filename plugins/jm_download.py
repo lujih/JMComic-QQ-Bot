@@ -13,6 +13,8 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 from nonebot.rule import is_type
 
+import httpx
+
 from jmcomic import Feature, JmDownloader, JmcomicException
 from plugins._option import get_option as _get_option
 from plugins.database import use_download_quota
@@ -349,6 +351,65 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
     await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
 
 
+_TRANSIT_BASE = "https://transit2.cszxorx.dpdns.org"
+
+
+async def _upload_to_transit2(file_path: Path, filename: str) -> str:
+    loop = asyncio.get_running_loop()
+
+    def _sync():
+        size = file_path.stat().st_size
+
+        # 1 — 创建上传会话
+        resp = httpx.post(
+            f"{_TRANSIT_BASE}/api/upload",
+            json={"filename": filename, "size": size, "mimeType": "application/octet-stream"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        file_id = data["fileId"]
+        upload_key = data["uploadKey"]
+        chunk_urls = data.get("chunkUrls")
+
+        if chunk_urls is None:
+            # 2a — 单段上传（<10MB，但此分支实际不会走到）
+            upload_url = data["uploadUrl"]
+            with open(file_path, "rb") as f:
+                r = httpx.put(upload_url, content=f.read(), timeout=300)
+            r.raise_for_status()
+        else:
+            # 2b — 分片上传（>=10MB）
+            upload_id = data["uploadId"]
+            chunk_size = data["chunkSize"]
+            parts = []
+
+            with open(file_path, "rb") as f:
+                for i, url in enumerate(chunk_urls):
+                    part_number = i + 1
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    r = httpx.put(url, content=chunk, timeout=120)
+                    r.raise_for_status()
+                    parts.append({"PartNumber": part_number, "ETag": r.headers.get("ETag")})
+
+            # 3 — 完成分片
+            r = httpx.post(
+                f"{_TRANSIT_BASE}/api/upload/{file_id}/chunks/complete",
+                json={"uploadId": upload_id, "uploadKey": upload_key, "parts": parts},
+                timeout=30,
+            )
+            r.raise_for_status()
+
+        return file_id
+
+    return await asyncio.wait_for(
+        loop.run_in_executor(None, _sync),
+        timeout=600,
+    )
+
+
 async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Path, id_str: str, cooldown_key: str, ext='pdf', fmt_name='PDF'):
     try:
         try:
@@ -358,9 +419,18 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
             await jm_cmd.finish(f"❌ {fmt_name} 上传失败（文件已被清理），请重新下载")
 
         if st.st_size > 100 * 1024 * 1024:
-            file_path.unlink(missing_ok=True)
-            _last_use.pop(cooldown_key, None)
-            await jm_cmd.finish(f"❌ {fmt_name} 超过 100MB，无法发送到群\n💡 试试 /jm {id_str} --zip 压缩后更小")
+            try:
+                file_id = await _upload_to_transit2(file_path, f"JM{id_str}.{ext}")
+            except Exception as e:
+                _last_use.pop(cooldown_key, None)
+                await jm_cmd.finish(f"❌ 上传到中转站失败: {e}")
+
+            await jm_cmd.send(
+                f"📎 JM{id_str} 文件较大({st.st_size / 1048576:.1f}MB)，已上传至中转站\n"
+                f"🔗 {_TRANSIT_BASE}/file/{file_id}\n"
+                f"⏰ 24小时自动删除"
+            )
+            return
 
         try:
             await bot.call_api(

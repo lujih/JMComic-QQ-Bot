@@ -6,3 +6,4 @@ img2pdf
 Pillow
 pycryptodome
 curl-cffi
+httpx

@@ -104,8 +104,8 @@ pip install -e path/to/JMComic-Crawler-Python
 - 每人每群 60 秒冷却（仅下载，rank/random/help 无冷却）
 - 下载前一次性展示本子详情（名称/作者/章节/页数/标签），不再发逐章进度
 - 下载超时直接结束（无自动重试，避免线程竞态），jmcomic 内部已有 3 次重试
-- PDF/ZIP/长图超 100MB 跳过上传，提示 `--zip` 压缩
-- 群文件上传失败自动重试 1 次
+- PDF/ZIP/长图超 100MB 自动上传至 Transit2 中转站（`https://transit2.cszxorx.dpdns.org`）并发下载链接，24h 自动删除
+- 中转站单文件上限 500MB（R2 存储），上传失败会提示具体错误
 - 30 分钟短时缓存（`/tmp/jm/{id}.ext`），定时每 30 分钟清理过期缓存和残留下载目录（`/tmp/jm_dl/`）
 - 下载后自动清理原始图片（`/tmp/jm_dl/A{id}/` 及 `P{id}/`）
 - 每次 `/jm` 命令开头自动扫描 `/tmp/jm_dl/`，删除超过 30 分钟的残留目录（替代原 APScheduler 定时清理）
