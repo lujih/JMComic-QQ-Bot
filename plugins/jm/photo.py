@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+import threading
 import asyncio
 
 from jmcomic import Feature, JmcomicException
@@ -11,7 +12,7 @@ from plugins.jm.common import (
     _cleanup_stale_dirs,
     _run_sync,
     _semaphore,
-    _cancel_event,
+    _is_cache_valid,
     _make_out_path,
     _last_use,
     _DL_TMP,
@@ -54,6 +55,11 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
         f"🆔 p{photo.photo_id} | 🖼️ {len(photo)}页"
     )
 
+    if _is_cache_valid(pdf_path):
+        progress("📦 命中缓存，直接发送 PDF……")
+        await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
+        return
+
     quota = await _run_sync(use_download_quota, event.user_id, event.group_id)
     if not quota['ok']:
         _last_use.pop(cooldown_key, None)
@@ -66,8 +72,10 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
 
     extra = Feature.export_pdf(pdf_dir=str(_TMP_DIR), filename_rule='Pid')
 
+    cancel_event = threading.Event()
+
     def _dl():
-        dler = ProgressJmDownloader(option, progress)
+        dler = ProgressJmDownloader(option, progress, cancel_event=cancel_event)
         with dler:
             dler.add_features(extra, 'download_photo')
             dler.download_by_photo_detail(photo)
@@ -75,20 +83,14 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
 
     try:
         async with _semaphore:
-            _cancel_event.clear()
             await _run_sync(_dl, timeout=120)
     except asyncio.TimeoutError:
-        _cancel_event.set()
+        cancel_event.set()
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish("❌ 下载超时，请稍后再试")
     except Exception as e:
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
-    finally:
-        for prefix in ('A', 'P'):
-            d = _DL_TMP / f"{prefix}{photo_id}"
-            if d.exists():
-                shutil.rmtree(d, ignore_errors=True)
 
     if not pdf_path.exists():
         _last_use.pop(cooldown_key, None)

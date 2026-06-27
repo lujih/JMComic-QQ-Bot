@@ -3,7 +3,6 @@ import time
 import shutil
 import tempfile
 import asyncio
-import threading
 from collections import OrderedDict
 from pathlib import Path
 
@@ -20,7 +19,6 @@ FORMAT_MAP = {
 _DEFAULT_FMT = 'pdf'
 _last_use: OrderedDict[str, float] = OrderedDict()
 _MAX_COOLDOWN_ENTRIES = 10000
-_cancel_event = threading.Event()
 
 _semaphore = asyncio.Semaphore(1)
 _TMP_DIR = Path(tempfile.gettempdir()) / "jm"
@@ -48,6 +46,10 @@ async def _run_sync(func, *args, timeout=180):
         loop.run_in_executor(None, lambda: func(*args)),
         timeout=timeout,
     )
+
+
+# Public alias for cross-module use
+run_sync = _run_sync
 
 
 def _parse_format_flags(text: str):
@@ -84,6 +86,7 @@ HELP_TEXT = (
     "/sign                  每日签到获取积分（5~99 随机）\n\n"
     "/jmv <ID>               查看本子详情\n"
     "/jms <关键词>           搜索本子\n"
+    "/mv <番号>              搜索番号并返回磁力链接\n"
     "每日早 9:00             自动推送随机推荐到群"
 )
 

@@ -136,11 +136,15 @@ cd /app/bot
 echo "[start] Waiting for NapCat WebUI on port 7860..."
 for i in $(seq 1 30); do
     if curl -sf http://127.0.0.1:7860 > /dev/null 2>&1; then
-        echo "[start] NapCat WebUI ready"
+        echo "" && echo "[start] NapCat WebUI ready"
         break
     fi
+    printf "."
     sleep 2
 done
+if ! curl -sf http://127.0.0.1:7860 > /dev/null 2>&1; then
+    echo " [start] NapCat WebUI not ready after 60s, continuing..."
+fi
 
 # 9. Start NoneBot2 (foreground — keeps container alive)
 echo "[start] Starting NoneBot2..."

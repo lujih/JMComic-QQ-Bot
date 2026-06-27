@@ -9,11 +9,12 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
                                      ├── /jm help  → HELP_TEXT
                                      ├── /jm rank  → month/week/day_ranking
                                      ├── /jm random → month_ranking → random.choice
-                                      ├── /jmv      → get_album_detail
-                                      ├── /jms      → search_site
-                                      ├── /sign     → do_checkin（签到积分）
-                                      ├── database  → 配额检查 + 积分扣减
-                                      └── 每日 9:00  → APScheduler → month_ranking → 群推送
+                                     ├── /jmv      → get_album_detail
+                                     ├── /jms      → search_site
+                                     ├── /mv       → MissAV 标题搜索 + Sukebei 磁力链
+                                     ├── /sign     → do_checkin（签到积分）
+                                     ├── database  → 配额检查 + 积分扣减
+                                     └── 每日 9:00  → APScheduler → month_ranking → 群推送
 ```
 
 架构翻转：NoneBot2 做 WS 服务器（`:8080`），NapCat 做 WS 客户端连接。
@@ -21,11 +22,12 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 ## 关键文件
 
 | 文件 | 作用 |
-|---|---|
+|---|---|---|
 | `bot.py` | NoneBot2 入口，显式注册 `OnebotV11Adapter` |
 | `.env` | `DRIVER=~fastapi`, `HOST=0.0.0.0`, `PORT=8080`, `COMMAND_START=["/"]`, `TARGET_GROUPS` |
 | `config/onebot11.json` | NapCat WS 客户端 → `ws://127.0.0.1:8080/onebot/v11/ws` |
-| `plugins/jm_download.py` | 全部 `/jm` 子命令 + `ProgressJmDownloader` 进度推送 + 格式切换 |
+| `plugins/jm/` | `/jm` 命令包 — `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(3级上传fallback), `progress.py`(进度推送), `common.py`(公共工具) |
+| `plugins/mv/` | `/mv` 命令包 — `handler.py`(路由), `_search.py`(MissAV标题), `_torrent.py`(Sukebei磁力) |
 | `plugins/jm_info.py` | `/jmv` 详情 + `/jms` 搜索 |
 | `plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`） |
 | `plugins/database.py` | SQLite 数据库层 — `do_checkin` / `use_download_quota` / `ensure_user` / `get_config` / `set_config` / `vacuum_db` |
@@ -72,7 +74,7 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### jm_scheduler 未复用 option 缓存
 - 最初 `jm_scheduler.py` 直接调用 `create_option_by_file(str(OPTION_PATH))`，与 `_option.py` 缓存单例不一致
-- 修复：改为 `from plugins._option import get_option`，与 `jm_download.py` 共享同一 option 实例
+- 修复：改为 `from plugins._option import get_option`，与 `plugins/jm/` 包共享同一 option 实例
 
 ### SQLite VACUUM 与 WAL 维护
 - `init_db()` 在 `PRAGMA journal_mode=WAL` 后追加 `PRAGMA wal_checkpoint(TRUNCATE)`，启动时将 WAL 刷入主库并截断
@@ -97,6 +99,8 @@ pip install -e path/to/JMComic-Crawler-Python
 | `/jm help` | 查看全部命令 | `/jm help` |
 | `/jmv <ID>` | 查看本子详情 | `/jmv 438516` |
 | `/jms <关键词>` | 搜索本子 | `/jms 无修正` |
+| `/mv <番号>` | 搜索番号返回磁力链接 | `/mv SSNI-123` |
+| `/mv <番号> --page N` | 翻页 | `/mv SSNI-123 --page 2` |
 | `/sign` | 每日签到获取积分 | `/sign` |
 | 每日早 9:00 | 自动推送随机推荐 | 需 `.env` 配置 `TARGET_GROUPS` |
 
@@ -117,7 +121,7 @@ pip install -e path/to/JMComic-Crawler-Python
 plugins/database.py ← SQLite (WAL + threading.Lock) — 用户/签到/配置表
 plugins/jm_checkin.py — /sign 签到
 plugins/jm_admin.py   — /jmadmin 管理命令
-jm_download.py 改造   — 每日免费额度 + 积分扣减
+plugins/jm/album.py, photo.py — 每日免费额度 + 积分扣减
 ```
 
 ### 数据库表
@@ -130,7 +134,7 @@ jm_download.py 改造   — 每日免费额度 + 积分扣减
 #### P0 — 核心闭环（签到 → 消耗）✅
 1. `plugins/database.py`: SQLite WAL + Lock, ensure_user / do_checkin / use_download_quota / get_config / set_config
 2. `plugins/jm_checkin.py`: /sign → randint(5,99) + 连续 7d+10 / 30d+30
-3. `jm_download.py` 改造: 每日免费 3 次 → 超出扣 5 积分 → 不足提示 /sign
+3. `plugins/jm/album.py, photo.py`: 每日免费 3 次 → 超出扣 5 积分 → 不足提示 /sign
 4. `plugins/database.py`: `PRAGMA wal_checkpoint(TRUNCATE)` + `vacuum_db()`
 
 #### P1 — 管理命令 + 体验优化（🔜 待实现）

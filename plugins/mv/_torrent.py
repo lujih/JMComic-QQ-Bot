@@ -1,4 +1,6 @@
 import re
+from urllib.parse import quote
+
 import httpx
 from bs4 import BeautifulSoup
 
@@ -6,7 +8,6 @@ SUKEBEI_BASE = "https://sukebei.nyaa.si"
 
 
 def search(query: str, page: int = 1):
-    from urllib.parse import quote
     url = f"{SUKEBEI_BASE}/?q={quote(query, safe='')}&c=0_0&s=seeders&o=desc&p={page}"
 
     try:
@@ -57,8 +58,12 @@ def _parse_page(html: str):
         if not name:
             continue
 
-        size_td = row.find('td', string=re.compile(r'\d+\.?\d*\s*(?:[KMGTP]i?B|B|bytes?)'))
-        size = size_td.get_text(strip=True) if size_td else ''
+        size = ''
+        for td in row.find_all('td'):
+            text = td.get_text(strip=True)
+            if re.match(r'^\d+\.?\d*\s*(?:[KMGTP]i?B|B|bytes?)$', text):
+                size = text
+                break
 
         digit_cells = []
         for td in row.select('td.text-center'):
@@ -82,11 +87,6 @@ def _parse_page(html: str):
 
 def _has_next_page(html: str) -> bool:
     soup = BeautifulSoup(html, 'html.parser')
-    table = soup.find('table', class_='table')
-    if table:
-        rows = table.select('tbody tr')
-        if len(rows) >= 75:
-            return True
     pag = soup.find('ul', class_='pagination')
     if pag:
         for a in pag.select('a[href]'):

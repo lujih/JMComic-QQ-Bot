@@ -8,17 +8,10 @@ from nonebot.params import CommandArg
 from nonebot.rule import is_type
 
 from plugins._option import get_option as _get_option
+from plugins.jm.common import run_sync
 
 __plugin_name__ = "jm_info"
 __plugin_usage__ = "/jmv <ID> — 查看本子详情\n/jms <关键字> — 搜索本子"
-
-
-async def _run_sync(func, *args, timeout=60):
-    loop = asyncio.get_running_loop()
-    return await asyncio.wait_for(
-        loop.run_in_executor(None, lambda: func(*args)),
-        timeout=timeout,
-    )
 
 
 jmv_cmd = on_command("jmv", priority=10, rule=is_type(GroupMessageEvent))
@@ -38,7 +31,7 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     try:
         option = _get_option()
         client = option.build_jm_client()
-        album = await _run_sync(client.get_album_detail, album_id)
+        album = await run_sync(client.get_album_detail, album_id, timeout=60)
     except asyncio.TimeoutError:
         await jmv_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:
@@ -70,7 +63,7 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     try:
         option = _get_option()
         client = option.build_jm_client()
-        page = await _run_sync(client.search_site, text, 1)
+        page = await run_sync(client.search_site, text, 1, timeout=60)
     except asyncio.TimeoutError:
         await jms_cmd.finish("❌ 搜索超时，请稍后再试")
     except Exception as e:

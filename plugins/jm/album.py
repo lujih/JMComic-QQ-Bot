@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+import threading
 import asyncio
 
 from jmcomic import JmcomicException
@@ -11,7 +12,6 @@ from plugins.jm.common import (
     _cleanup_stale_dirs,
     _run_sync,
     _semaphore,
-    _cancel_event,
     _is_cache_valid,
     _make_out_path,
     _last_use,
@@ -76,8 +76,10 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
 
     extra = feature_cls(**{f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR)}, filename_rule='Aid')
 
+    cancel_event = threading.Event()
+
     def _dl():
-        dler = ProgressJmDownloader(option, progress, fmt_name=fmt_name)
+        dler = ProgressJmDownloader(option, progress, fmt_name=fmt_name, cancel_event=cancel_event)
         with dler:
             dler.add_features(extra, 'download_album')
             dler.download_by_album_detail(album)
@@ -85,20 +87,14 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
 
     try:
         async with _semaphore:
-            _cancel_event.clear()
             await _run_sync(_dl, timeout=300)
     except asyncio.TimeoutError:
-        _cancel_event.set()
+        cancel_event.set()
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish("❌ 下载超时，请稍后再试")
     except Exception as e:
         _last_use.pop(cooldown_key, None)
         await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
-    finally:
-        for prefix in ('A', 'P'):
-            d = _DL_TMP / f"{prefix}{album_id}"
-            if d.exists():
-                shutil.rmtree(d, ignore_errors=True)
 
     if not out_path.exists():
         _last_use.pop(cooldown_key, None)

@@ -25,6 +25,7 @@ pinned: false
 | `/jm random` | 随机推荐本子 |
 | `/jmv <ID>` | 查看本子详情 |
 | `/jms <关键词>` | 搜索本子 |
+| `/mv <番号>` | 搜索番号并返回磁力链接（MissAV 标题 + Sukebei 做种） |
 | `/sign` | 每日签到获取积分（5~99 随机） |
 | 每日 9:00 自动推送 | 随机推荐到已配置群 |
 
@@ -125,6 +126,8 @@ HF Spaces 免费版 48h 无活动会休眠，可选：
 |---|---|---|
 | `/jmv <ID>` | 查看本子详情 | `/jmv 438516` |
 | `/jms <关键词>` | 搜索本子 | `/jms 无修正` |
+| `/mv <番号>` | 搜索番号并返回磁力链接 | `/mv SSNI-123` |
+| `/mv <番号> --page N` | 翻页 | `/mv SSNI-123 --page 2` |
 
 ### 推荐
 
@@ -198,9 +201,10 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
      │                              │
      └── WebUI (7860)               ├── /jm      → 下载 + 格式导出
                                      ├── /jmv/jms → 查询
-                                      ├── /sign    → do_checkin（签到积分）
-                                      ├── database → 配额检查 + 积分扣减
-                                      └── 每日 9:00 → 自动推荐
+                                     ├── /mv      → MissAV 搜索 + Sukebei 磁力链
+                                     ├── /sign    → do_checkin（签到积分）
+                                     ├── database → 配额检查 + 积分扣减
+                                     └── 每日 9:00 → 自动推荐
 ```
 
 - **NapCatQQ**: NTQQ 官方协议实现，负责 QQ 消息收发，提供 WebUI 管理界面
@@ -234,7 +238,8 @@ JMComic-QQ-Bot/
 ├── plugins/
 │   ├── __init__.py
 │   ├── _option.py         # jmcomic option 双检锁缓存
-│   ├── jm_download.py     # 下载核心（/jm）
+│   ├── jm/                # /jm 命令包（handler / album / photo / upload / progress / common）
+│   ├── mv/                # /mv 命令包（handler / missav 搜索 / sukebei 磁力）
 │   ├── jm_info.py         # 查询命令（/jmv /jms）
 │   ├── jm_scheduler.py    # 定时推荐
 │   ├── database.py        # SQLite 数据库层（签到/积分/配置）

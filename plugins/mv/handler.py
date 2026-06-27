@@ -1,9 +1,9 @@
 import re
-import asyncio
 
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 
+from plugins.jm.common import run_sync
 from plugins.mv._cmd import mv_cmd
 from plugins.mv._search import _search_missav
 from plugins.mv._torrent import search as search_torrent
@@ -30,9 +30,9 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
 
     await mv_cmd.send(f"🔍 正在搜索 {text}……")
 
-    title, _ = await _run_sync(_search_missav, text)
+    title, _ = await run_sync(_search_missav, text, timeout=30)
 
-    results, has_next = await _run_sync(search_torrent, text, page)
+    results, has_next = await run_sync(search_torrent, text, page, timeout=30)
 
     if not results:
         parts = [f"❌ 未找到 {text} 的磁力链接"]
@@ -62,11 +62,3 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     lines.append("  ".join(nav_parts))
 
     await mv_cmd.finish("\n".join(lines))
-
-
-async def _run_sync(func, *args, timeout=30):
-    loop = asyncio.get_running_loop()
-    return await asyncio.wait_for(
-        loop.run_in_executor(None, lambda: func(*args)),
-        timeout=timeout,
-    )
