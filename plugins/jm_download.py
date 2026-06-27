@@ -11,6 +11,7 @@ from pathlib import Path
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
+from nonebot.rule import is_type
 
 from jmcomic import Feature, JmDownloader, JmcomicException
 from plugins._option import get_option as _get_option
@@ -132,7 +133,7 @@ class ProgressJmDownloader(JmDownloader):
         super().after_album(album)
 
 
-jm_cmd = on_command("jm", priority=10)
+jm_cmd = on_command("jm", priority=10, rule=is_type(GroupMessageEvent))
 
 
 @jm_cmd.handle()
@@ -361,22 +362,16 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
             _last_use.pop(cooldown_key, None)
             await jm_cmd.finish(f"❌ {fmt_name} 超过 100MB，无法发送到群\n💡 试试 /jm {id_str} --zip 压缩后更小")
 
-        for attempt in range(2):
-            try:
-                await bot.call_api(
-                    "upload_group_file",
-                    group_id=event.group_id,
-                    file=str(file_path.resolve()),
-                    name=f"JM{id_str}.{ext}",
-                )
-                await jm_cmd.send(f"✅ JM{id_str} 下载完成，{fmt_name} 已发送到群")
-                return
-            except Exception:
-                if attempt == 0:
-                    await asyncio.sleep(2)
-                else:
-                    await jm_cmd.send(f"❌ {fmt_name} 上传失败，请稍后重试")
-                    return
+        try:
+            await bot.call_api(
+                "upload_group_file",
+                group_id=event.group_id,
+                file=str(file_path.resolve()),
+                name=f"JM{id_str}.{ext}",
+            )
+            await jm_cmd.send(f"✅ JM{id_str} 下载完成，{fmt_name} 已发送到群")
+        except Exception:
+            await jm_cmd.send(f"⚠️ JM{id_str} 正在上传中，请查看群文件")
     finally:
         file_path.unlink(missing_ok=True)
         for prefix in ('A', 'P'):

@@ -36,6 +36,7 @@ def _fetch_recommendation():
 async def daily_recommend():
     groups = _parse_target_groups()
     if not groups:
+        jm_log("scheduler.info", "每日推荐：跳过推送（TARGET_GROUPS 未配置）")
         return
 
     loop = asyncio.get_running_loop()

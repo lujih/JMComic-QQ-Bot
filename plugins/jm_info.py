@@ -5,6 +5,7 @@ import itertools
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
+from nonebot.rule import is_type
 
 from plugins._option import get_option as _get_option
 
@@ -20,8 +21,8 @@ async def _run_sync(func, *args, timeout=60):
     )
 
 
-jmv_cmd = on_command("jmv", priority=10)
-jms_cmd = on_command("jms", priority=10)
+jmv_cmd = on_command("jmv", priority=10, rule=is_type(GroupMessageEvent))
+jms_cmd = on_command("jms", priority=10, rule=is_type(GroupMessageEvent))
 
 
 @jmv_cmd.handle()

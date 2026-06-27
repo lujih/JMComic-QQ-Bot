@@ -2,13 +2,14 @@ import asyncio
 
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
+from nonebot.rule import is_type
 
 from plugins.database import do_checkin
 
 __plugin_name__ = "jm_checkin"
 __plugin_usage__ = "/sign — 每日签到获取积分"
 
-sign_cmd = on_command("sign", priority=10)
+sign_cmd = on_command("sign", priority=10, rule=is_type(GroupMessageEvent))
 
 
 @sign_cmd.handle()
