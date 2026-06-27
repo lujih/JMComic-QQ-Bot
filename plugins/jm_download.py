@@ -5,6 +5,9 @@ import asyncio
 import threading
 import shutil
 import tempfile
+import uuid
+import hashlib
+import base64
 from collections import OrderedDict
 from pathlib import Path
 
@@ -410,6 +413,49 @@ async def _upload_to_transit2(file_path: Path, filename: str) -> str:
     )
 
 
+async def _upload_via_stream(bot: Bot, group_id: int, file_path: Path, filename: str):
+    import math
+    size = file_path.stat().st_size
+
+    sha256 = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while chunk := f.read(8192):
+            sha256.update(chunk)
+    digest = sha256.hexdigest()
+
+    stream_id = str(uuid.uuid4())
+    chunk_size = 1024 * 1024
+    total_chunks = max(math.ceil(size / chunk_size), 1)
+
+    with open(file_path, "rb") as f:
+        for i in range(total_chunks):
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            await bot.call_api("upload_file_stream", **{
+                "stream_id": stream_id,
+                "chunk_data": base64.b64encode(chunk).decode(),
+                "chunk_index": i,
+                "total_chunks": total_chunks,
+                "file_size": size,
+                "expected_sha256": digest,
+                "filename": filename,
+                "file_retention": 300_000,
+            })
+
+        resp = await bot.call_api("upload_file_stream", **{
+            "stream_id": stream_id,
+            "is_complete": True,
+        })
+
+    file_path_local = resp["data"]["file_path"]
+    await bot.call_api("upload_group_file", **{
+        "group_id": group_id,
+        "file": file_path_local,
+        "name": filename,
+    })
+
+
 async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Path, id_str: str, cooldown_key: str, ext='pdf', fmt_name='PDF'):
     try:
         try:
@@ -418,30 +464,41 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
             _last_use.pop(cooldown_key, None)
             await jm_cmd.finish(f"❌ {fmt_name} 上传失败（文件已被清理），请重新下载")
 
-        if st.st_size > 100 * 1024 * 1024:
-            try:
-                file_id = await _upload_to_transit2(file_path, f"JM{id_str}.{ext}")
-            except Exception as e:
-                _last_use.pop(cooldown_key, None)
-                await jm_cmd.finish(f"❌ 上传到中转站失败: {e}")
+        filename = f"JM{id_str}.{ext}"
 
+        # Tier 1 — upload_group_file
+        try:
+            await bot.call_api(
+                "upload_group_file",
+                group_id=event.group_id,
+                file=str(file_path.resolve()),
+                name=filename,
+            )
+            await jm_cmd.send(f"✅ JM{id_str} 下载完成，{fmt_name} 已发送到群")
+            return
+        except Exception:
+            pass
+
+        # Tier 2 — upload_file_stream → upload_group_file
+        try:
+            await _upload_via_stream(bot, event.group_id, file_path, filename)
+            await jm_cmd.send(f"✅ JM{id_str} 下载完成（流式上传），{fmt_name} 已发送到群")
+            return
+        except Exception:
+            pass
+
+        # Tier 3 — Transit2 下载链接
+        try:
+            file_id = await _upload_to_transit2(file_path, filename)
             await jm_cmd.send(
                 f"📎 JM{id_str} 文件较大({st.st_size / 1048576:.1f}MB)，已上传至中转站\n"
                 f"🔗 {_TRANSIT_BASE}/file/{file_id}\n"
                 f"⏰ 24小时自动删除"
             )
             return
-
-        try:
-            await bot.call_api(
-                "upload_group_file",
-                group_id=event.group_id,
-                file=str(file_path.resolve()),
-                name=f"JM{id_str}.{ext}",
-            )
-            await jm_cmd.send(f"✅ JM{id_str} 下载完成，{fmt_name} 已发送到群")
-        except Exception:
-            await jm_cmd.send(f"⚠️ JM{id_str} 正在上传中，请查看群文件")
+        except Exception as e:
+            _last_use.pop(cooldown_key, None)
+            await jm_cmd.finish(f"❌ {fmt_name} 上传失败（已尝试 3 种方式）: {e}")
     finally:
         file_path.unlink(missing_ok=True)
         for prefix in ('A', 'P'):
