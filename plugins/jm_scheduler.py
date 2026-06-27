@@ -1,21 +1,17 @@
 import os
-import time
 import asyncio
 import random
-import tempfile
-from pathlib import Path
 
 from nonebot import require, get_bot
 
 require("nonebot_plugin_apscheduler")
 from nonebot_plugin_apscheduler import scheduler
 
-from jmcomic import create_option_by_file, jm_log
+from jmcomic import jm_log
+from plugins._option import get_option
 
 __plugin_name__ = "jm_scheduler"
 __plugin_usage__ = "每日早 9 点推送随机推荐"
-
-OPTION_PATH = Path(__file__).parent.parent / "option.yml"
 
 
 def _parse_target_groups() -> list[int]:
@@ -26,7 +22,7 @@ def _parse_target_groups() -> list[int]:
 
 
 def _fetch_recommendation():
-    option = create_option_by_file(str(OPTION_PATH))
+    option = get_option()
     client = option.build_jm_client()
     page = client.month_ranking(1)
     results = list(page)
@@ -78,24 +74,4 @@ async def daily_recommend():
             jm_log("scheduler.error", f"每日推荐：发送到群 {gid} 失败 — {e}")
 
 
-@scheduler.scheduled_job("cron", hour="*", minute="30", id="cleanup_cache")
-async def cleanup_cache():
-    cache_dir = Path(tempfile.gettempdir()) / "jm"
-    if not cache_dir.exists():
-        return
 
-    now = time.time()
-    removed = 0
-    for f in cache_dir.iterdir():
-        if not f.is_file():
-            continue
-        try:
-            age = now - f.stat().st_mtime
-        except OSError:
-            continue
-        if age > 1800:
-            f.unlink(missing_ok=True)
-            removed += 1
-
-    if removed > 0:
-        jm_log("scheduler.info", f"缓存清理：已删除 {removed} 个过期文件")

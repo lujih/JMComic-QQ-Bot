@@ -12,8 +12,9 @@ from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 
-from jmcomic import Feature, JmDownloader
+from jmcomic import Feature, JmDownloader, JmcomicException
 from plugins._option import get_option as _get_option
+from plugins.database import use_download_quota
 
 __plugin_name__ = "jm_download"
 __plugin_usage__ = (
@@ -40,6 +41,21 @@ _cancel_event = threading.Event()
 _semaphore = asyncio.Semaphore(1)
 _TMP_DIR = Path(tempfile.gettempdir()) / "jm"
 _DL_TMP = Path(tempfile.gettempdir()) / "jm_dl"
+
+
+def _cleanup_stale_dirs():
+    dl = _DL_TMP
+    if not dl.exists():
+        return
+    now = time.time()
+    for d in dl.iterdir():
+        if not d.is_dir():
+            continue
+        try:
+            if now - d.stat().st_mtime > 1800:
+                shutil.rmtree(d, ignore_errors=True)
+        except OSError:
+            pass
 
 
 async def _run_sync(func, *args, timeout=180):
@@ -96,7 +112,8 @@ HELP_TEXT = (
     "/jm p<章节ID>           下载单个章节\n"
     "/jm rank [周/月/日]     查看排行榜（默认周榜）\n"
     "/jm random             随机推荐一本\n"
-    "/jm help               显示本帮助\n\n"
+    "/jm help               显示本帮助\n"
+    "/sign                  每日签到获取积分（5~99 随机）\n\n"
     "/jmv <ID>               查看本子详情\n"
     "/jms <关键词>           搜索本子\n"
     "每日早 9:00             自动推送随机推荐到群"
@@ -173,6 +190,7 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
 
 
 async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, cooldown_key: str, fmt=_DEFAULT_FMT):
+    _cleanup_stale_dirs()
     group_id = event.group_id
     loop = asyncio.get_running_loop()
     feature_cls, ext, fmt_name = FORMAT_MAP[fmt]
@@ -194,7 +212,10 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
 
     option = _get_option()
     client = option.build_jm_client()
-    album = await _run_sync(client.get_album_detail, album_id)
+    try:
+        album = await _run_sync(client.get_album_detail, album_id)
+    except JmcomicException as e:
+        await jm_cmd.finish(f"❌ 查询失败: {e}")
 
     tags_str = f"\n🏷️ {'、'.join(album.tags[:5])}" if album.tags else ""
     await jm_cmd.send(
@@ -207,6 +228,12 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
         progress(f"📦 命中缓存，直接发送 {fmt_name}……")
         await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)
         return
+
+    quota = await _run_sync(use_download_quota, event.user_id, event.group_id)
+    if not quota['ok']:
+        _last_use.pop(cooldown_key, None)
+        await jm_cmd.finish(quota['msg'])
+    progress(quota['msg'])
 
     progress(f"⏳ 正在下载并生成 {fmt_name}……")
 
@@ -246,6 +273,7 @@ async def _download_album(bot: Bot, event: GroupMessageEvent, album_id: str, coo
 
 
 async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, cooldown_key: str):
+    _cleanup_stale_dirs()
     group_id = event.group_id
     loop = asyncio.get_running_loop()
 
@@ -267,12 +295,21 @@ async def _download_photo(bot: Bot, event: GroupMessageEvent, photo_id: str, coo
 
     option = _get_option()
     client = option.build_jm_client()
-    photo = await _run_sync(client.get_photo_detail, photo_id)
+    try:
+        photo = await _run_sync(client.get_photo_detail, photo_id)
+    except JmcomicException as e:
+        await jm_cmd.finish(f"❌ 查询失败: {e}")
 
     await jm_cmd.send(
         f"📖 {photo.name}\n"
         f"🆔 p{photo.photo_id} | 🖼️ {len(photo)}页"
     )
+
+    quota = await _run_sync(use_download_quota, event.user_id, event.group_id)
+    if not quota['ok']:
+        _last_use.pop(cooldown_key, None)
+        await jm_cmd.finish(quota['msg'])
+    progress(quota['msg'])
 
     progress(f"⏳ 正在下载章节并生成 PDF……")
 

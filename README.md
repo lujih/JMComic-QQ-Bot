@@ -19,6 +19,7 @@
 | `/jm random` | 随机推荐本子 |
 | `/jmv <ID>` | 查看本子详情 |
 | `/jms <关键词>` | 搜索本子 |
+| `/sign` | 每日签到获取积分（5~99 随机） |
 | 每日 9:00 自动推送 | 随机推荐到已配置群 |
 
 ## 快速部署
@@ -99,7 +100,7 @@ HF Spaces 免费版 48h 无活动会休眠，可选：
 
 - **升级实例**：CPU 升级（$7.2/月）→ 始终在线
 - **监控 Ping**：使用 [UptimeRobot](https://uptimerobot.com) 每 30 分钟 ping `https://你的用户名-jmcomic-qq-bot.hf.space`
-- **内部保活**：机器人自身定时的缓存清理任务也有助于保持活跃
+- **内部保活**：每次 `/jm` 命令自动清理过期残留，也有助于保持活跃
 
 ## 命令参考
 
@@ -126,6 +127,12 @@ HF Spaces 免费版 48h 无活动会休眠，可选：
 | `/jm rank [周/月/日]` | 排行榜（默认周榜） | `/jm rank 月` |
 | `/jm random` | 随机推荐一本 | `/jm random` |
 | 每日 9:00 自动推送 | 随机推荐到群 | 需配置 `TARGET_GROUPS` |
+
+### 积分
+
+| 命令 | 说明 | 示例 |
+|---|---|---|
+| `/sign` | 每日签到获取积分 | `/sign` |
 
 ### 帮助
 
@@ -185,7 +192,9 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
      │                              │
      └── WebUI (7860)               ├── /jm      → 下载 + 格式导出
                                      ├── /jmv/jms → 查询
-                                     └── 每日 9:00 → 自动推荐
+                                      ├── /sign    → do_checkin（签到积分）
+                                      ├── database → 配额检查 + 积分扣减
+                                      └── 每日 9:00 → 自动推荐
 ```
 
 - **NapCatQQ**: NTQQ 官方协议实现，负责 QQ 消息收发，提供 WebUI 管理界面
@@ -221,7 +230,9 @@ JMComic-QQ-Bot/
 │   ├── _option.py         # jmcomic option 双检锁缓存
 │   ├── jm_download.py     # 下载核心（/jm）
 │   ├── jm_info.py         # 查询命令（/jmv /jms）
-│   └── jm_scheduler.py    # 定时推荐 + 缓存清理
+│   ├── jm_scheduler.py    # 定时推荐
+│   ├── database.py        # SQLite 数据库层（签到/积分/配置）
+│   └── jm_checkin.py      # /sign 签到命令
 ├── option.yml             # jmcomic 下载配置
 ├── requirements.txt       # Python 依赖
 ├── Dockerfile             # HF Spaces Docker 构建
