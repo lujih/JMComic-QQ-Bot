@@ -1,3 +1,9 @@
+---
+title: JMComic QQ Bot
+sdk: docker
+pinned: false
+---
+
 # JMComic QQ Bot
 
 > 🤖 基于 NapCatQQ + NoneBot2 + jmcomic 的 QQ 群漫画下载机器人
