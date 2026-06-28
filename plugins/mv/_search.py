@@ -1,24 +1,26 @@
 import re
 from urllib.parse import quote
 
-import cloudscraper
 from bs4 import BeautifulSoup
+from curl_cffi import requests
 from jmcomic import jm_log
 
 MISSAV_SEARCH = "https://missav.ai/search/{query}"
 JAVDB_SEARCH = "https://javdb.com/search?q={query}&f=all"
 
-_scraper = None
+_session = None
+_IMPERSONATE = "chrome124"
 
 
-def _get_scraper():
-    global _scraper
-    if _scraper is None:
-        _scraper = cloudscraper.create_scraper(
-            browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False},
-            delay=5,
-        )
-    return _scraper
+def _get_session():
+    global _session
+    if _session is None:
+        _session = requests.Session()
+    return _session
+
+
+def _request(url, timeout=20, headers=None):
+    return _get_session().get(url, impersonate=_IMPERSONATE, timeout=timeout, headers=headers)
 
 
 def _extract_card_link(card, img):
@@ -35,7 +37,7 @@ def _search_missav(query: str):
     url = MISSAV_SEARCH.format(query=quote(query, safe=''))
 
     try:
-        resp = _get_scraper().get(url, timeout=20)
+        resp = _request(url)
     except Exception as e:
         jm_log('mv.search', f'MissAV search request failed: {e}')
         return "", "", ""
@@ -77,7 +79,7 @@ def _fetch_av_detail(detail_url: str) -> dict:
         return {}
 
     try:
-        resp = _get_scraper().get(detail_url, timeout=20)
+        resp = _request(detail_url)
     except Exception as e:
         jm_log('mv.detail', f'MissAV detail request failed: {e}')
         return {}
@@ -182,7 +184,7 @@ def _search_javdb(query: str) -> dict:
     }
 
     try:
-        resp = _get_scraper().get(url, timeout=20, headers=_headers)
+        resp = _request(url, headers=_headers)
     except Exception as e:
         jm_log('mv.javdb', f'JavDB search request failed: {e}')
         return {}
@@ -223,7 +225,7 @@ def _search_javdb(query: str) -> dict:
                 info['duration'] = m.group(1) + ' min'
 
             try:
-                det_resp = _get_scraper().get(detail_path, timeout=20, headers=_headers)
+                det_resp = _request(detail_path, headers=_headers)
                 if det_resp.status_code == 200:
                     det = BeautifulSoup(det_resp.content, 'html.parser')
                     det_text = det.get_text()
