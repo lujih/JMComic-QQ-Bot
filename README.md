@@ -192,8 +192,6 @@ download:
 /jm 438516 --longimg # 拼接长图
 ```
 
-> 单文件超过 **100MB** 会自动上传至 [Transit2 中转站](https://transit2.cszxorx.dpdns.org) 并发下载链接，24 小时自动删除，不受 QQ 群文件 100MB 上限限制。
-
 ## 架构
 
 ```
@@ -225,7 +223,6 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | QQ 扫码后闪退 | 账号风控 / NTQQ 兼容性 | 换一个小号，或更新 napcat-docker 镜像版本 |
 | `/jm` 命令返回超时 | 禁漫API 请求超时 | HF 海外节点正常，无需代理；若持续可重试 |
 | `/jm` 返回「文件未找到」 | 生成阶段错误 | 检查 Container Logs 中 jmcomic 报错 |
-| 文件超过 100MB | QQ 群文件上限 100MB | 自动上传至 Transit2 中转站，发下载链接 |
 | 每日 9:00 未推送 | `TARGET_GROUPS` 未配置 | 添加群号到环境变量 |
 
 ## 文件结构

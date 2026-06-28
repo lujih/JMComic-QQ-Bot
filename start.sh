@@ -12,18 +12,6 @@ if [ -z "${WEBUI_TOKEN}" ]; then
     echo "[start] Generated random WebUI token: ${WEBUI_TOKEN}"
 fi
 
-# 0b. Persist QQ session across HF Space restarts via /data/
-QQ_DATA_DIR=/data/.config/QQ
-mkdir -p "$QQ_DATA_DIR"
-if [ ! -f "$QQ_DATA_DIR/.migrated" ]; then
-    if [ -d /app/.config/QQ ]; then
-        echo "[start] Copying base QQ config to persistent storage..."
-        cp -a /app/.config/QQ/. "$QQ_DATA_DIR/" 2>/dev/null || true
-    fi
-    touch "$QQ_DATA_DIR/.migrated"
-fi
-mount --bind "$QQ_DATA_DIR" /app/.config/QQ 2>/dev/null || echo "[start] Warning: mount --bind failed, session persistence disabled"
-
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
 echo "[start] Writing NapCat WebUI config (port 7860)..."
 cat > "$NAPCAT_CONFIG/webui.json" << EOF
