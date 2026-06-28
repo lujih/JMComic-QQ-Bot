@@ -2,6 +2,7 @@ import re
 
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
+from jmcomic import jm_log
 
 from plugins.jm.common import run_sync
 from plugins.mv._cmd import mv_cmd
@@ -30,7 +31,11 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
 
     await mv_cmd.send(f"🔍 正在搜索 {text}……")
 
-    title, cover, detail_url = await run_sync(_search_missav, text, timeout=30)
+    try:
+        title, cover, detail_url = await run_sync(_search_missav, text, timeout=30)
+    except Exception as e:
+        jm_log('mv.search', f"MissAV 搜索失败: {e}")
+        title, cover, detail_url = "", "", ""
 
     info_lines = []
     display_title = title or text.upper()
@@ -39,11 +44,17 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     info_lines.append(f"📹 {display_title}")
 
     av_info = {}
-    if detail_url:
-        av_info = await run_sync(_fetch_av_detail, detail_url, timeout=30)
+    try:
+        if detail_url:
+            av_info = await run_sync(_fetch_av_detail, detail_url, timeout=30)
+    except Exception as e:
+        jm_log('mv.detail', f"MissAV 详情获取失败: {e}")
 
-    if not av_info:
-        av_info = await run_sync(_search_javdb, text, timeout=30)
+    try:
+        if not av_info:
+            av_info = await run_sync(_search_javdb, text, timeout=30)
+    except Exception as e:
+        jm_log('mv.javdb', f"JavDB 搜索失败: {e}")
 
     if av_info.get('actresses'):
         info_lines.append(f"🎬 女优: {' '.join(av_info['actresses'])}")
@@ -59,7 +70,11 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
 
     await mv_cmd.send("\n".join(info_lines))
 
-    results, has_next = await run_sync(search_torrent, text, page, timeout=30)
+    try:
+        results, has_next = await run_sync(search_torrent, text, page, timeout=30)
+    except Exception as e:
+        jm_log('mv.torrent', f"sukebei 搜索失败: {e}")
+        await mv_cmd.finish("❌ 磁力搜索失败，请稍后再试")
 
     if not results:
         await mv_cmd.finish(f"❌ 未找到 {text} 的磁力链接")

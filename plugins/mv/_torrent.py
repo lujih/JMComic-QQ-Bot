@@ -3,6 +3,7 @@ from urllib.parse import quote
 
 import httpx
 from bs4 import BeautifulSoup
+from jmcomic import jm_log
 
 SUKEBEI_BASE = "https://sukebei.nyaa.si"
 
@@ -13,7 +14,8 @@ def search(query: str, page: int = 1):
     try:
         resp = httpx.get(url, headers=_headers(), timeout=30, follow_redirects=True)
         resp.raise_for_status()
-    except Exception:
+    except Exception as e:
+        jm_log('mv.torrent', f"sukebei 请求失败: {e}")
         return [], False
 
     results = _parse_page(resp.text)

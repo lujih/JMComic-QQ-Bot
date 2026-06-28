@@ -10,6 +10,12 @@ class ProgressJmDownloader(JmDownloader):
         self._fmt_name = fmt_name
         self._cancel_event = cancel_event or threading.Event()
 
+    def before_photo(self, photo):
+        if self._cancel_event.is_set():
+            photo.skip = True
+            return
+        super().before_photo(photo)
+
     def after_album(self, album):
         if self._cancel_event.is_set():
             return

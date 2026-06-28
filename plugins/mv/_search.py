@@ -1,4 +1,5 @@
 import re
+import threading
 from urllib.parse import quote
 
 from bs4 import BeautifulSoup
@@ -9,13 +10,16 @@ MISSAV_SEARCH = "https://missav.ai/search/{query}"
 JAVDB_SEARCH = "https://javdb.com/search?q={query}&f=all"
 
 _session = None
+_session_lock = threading.Lock()
 _IMPERSONATE = "chrome124"
 
 
 def _get_session():
     global _session
     if _session is None:
-        _session = requests.Session()
+        with _session_lock:
+            if _session is None:
+                _session = requests.Session()
     return _session
 
 

@@ -6,6 +6,27 @@ NAPCAT_DIR=/app/napcat
 NAPCAT_CONFIG=$NAPCAT_DIR/config
 mkdir -p "$NAPCAT_CONFIG"
 
+# 0a. Generate random WebUI token if not set
+if [ -z "${WEBUI_TOKEN}" ]; then
+    WEBUI_TOKEN=$(openssl rand -hex 16)
+    echo "[start] Generated random WebUI token: ${WEBUI_TOKEN}"
+fi
+
+# 0b. Persist QQ session across HF Space restarts via /data/
+QQ_DATA_DIR=/data/.config/QQ
+if [ -d "$QQ_DATA_DIR" ]; then
+    echo "[start] Restoring QQ session from persistent storage..."
+    rm -rf /app/.config/QQ
+else
+    echo "[start] First boot: migrating QQ session to persistent storage..."
+    if [ -d /app/.config/QQ ]; then
+        mv /app/.config/QQ "$QQ_DATA_DIR"
+    else
+        mkdir -p "$QQ_DATA_DIR"
+    fi
+fi
+ln -sf "$QQ_DATA_DIR" /app/.config/QQ
+
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
 echo "[start] Writing NapCat WebUI config (port 7860)..."
 cat > "$NAPCAT_CONFIG/webui.json" << EOF
@@ -22,13 +43,10 @@ if [ ! -f "$NAPCAT_DIR/napcat.mjs" ]; then
     echo "[start] Unpacking NapCat.Shell.zip..."
     unzip -q /app/NapCat.Shell.zip -d /tmp/NapCat.Shell
     cp -rf /tmp/NapCat.Shell/* "$NAPCAT_DIR/"
-    rm -rf /tmp/NapCat.Shell
-fi
-
-if [ ! -f "$NAPCAT_CONFIG/napcat.json" ]; then
-    echo "[start] Copying default NapCat configs..."
-    unzip -q /app/NapCat.Shell.zip -d /tmp/NapCat.Shell
-    cp -rf /tmp/NapCat.Shell/config/* "$NAPCAT_CONFIG/"
+    # Copy default configs for missing ones
+    if [ ! -f "$NAPCAT_CONFIG/napcat.json" ] && [ -d "/tmp/NapCat.Shell/config" ]; then
+        cp -rf /tmp/NapCat.Shell/config/* "$NAPCAT_CONFIG/"
+    fi
     rm -rf /tmp/NapCat.Shell
 fi
 
@@ -45,9 +63,10 @@ open(path, 'w').write(data)
 "
 chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || true
 
-# 3a. Ensure NapCat temp dir exists and is writable by napcat user
+# 3a. Ensure temp dirs exist and are writable by napcat user
 mkdir -p /app/.config/QQ/NapCat/temp
-chown -R napcat:napcat /app/.config/QQ 2>/dev/null || true
+mkdir -p /app/.cache
+chown -R napcat:napcat /app/.config/QQ /app/.cache 2>/dev/null || true
 
 # 4. Anti-detection (from upstream napcat-docker entrypoint)
 rm -rf "/tmp/.X1-lock"
@@ -117,19 +136,28 @@ sync_onebot11_config &
 
 # 6. Start Xvfb (virtual display)
 echo "[start] Starting Xvfb..."
-Xvfb :1 -screen 0 1080x760x16 +extension GLX +render > /dev/null 2>&1 &
+Xvfb :1 -screen 0 1280x768x16 +extension GLX +render > /dev/null 2>&1 &
 sleep 1
 export DISPLAY=:1
 
-# 7. Start QQ + NapCat in background
+# 7. Start QQ + NapCat in background (auto-restart on crash)
 echo "[start] Starting QQ + NapCat..."
 cd "$NAPCAT_DIR"
-if [ -n "${ACCOUNT}" ]; then
-    gosu napcat /opt/QQ/qq --no-sandbox -q "$ACCOUNT" &
-else
-    gosu napcat /opt/QQ/qq --no-sandbox &
-fi
-QQ_PID=$!
+start_qq() {
+    while true; do
+        if [ -n "${ACCOUNT}" ]; then
+            gosu napcat /opt/QQ/qq --no-sandbox -q "$ACCOUNT" &
+        else
+            gosu napcat /opt/QQ/qq --no-sandbox &
+        fi
+        pid=$!
+        echo $pid > /tmp/qq.pid
+        wait $pid || true
+        echo "[start] QQ/NapCat exited, restarting in 10s..."
+        sleep 10
+    done
+}
+start_qq &
 cd /app/bot
 
 # 8. Wait for NapCat WebUI to be ready
@@ -152,4 +180,6 @@ python bot.py
 
 # 10. Cleanup on exit
 echo "[start] NoneBot2 exited, stopping..."
-kill $QQ_PID 2>/dev/null || true
+if [ -f /tmp/qq.pid ]; then
+    kill $(cat /tmp/qq.pid) 2>/dev/null || true
+fi

@@ -35,7 +35,7 @@ async def _upload_to_transit2(file_path: Path, filename: str) -> str:
         if chunk_urls is None:
             upload_url = data["uploadUrl"]
             with open(file_path, "rb") as f:
-                r = httpx.put(upload_url, content=f.read(), timeout=300)
+                r = httpx.put(upload_url, content=f, timeout=300)
             r.raise_for_status()
         else:
             upload_id = data["uploadId"]
@@ -110,6 +110,7 @@ async def _upload_via_stream(bot: Bot, group_id: int, file_path: Path, filename:
 
 
 async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Path, id_str: str, cooldown_key: str, ext='pdf', fmt_name='PDF'):
+    success = False
     try:
         try:
             st = file_path.stat()
@@ -128,6 +129,7 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
                 name=filename,
             )
             await jm_cmd.send(f"✅ JM{id_str} 下载完成，{fmt_name} 已发送到群")
+            success = True
             return
         except Exception:
             pass
@@ -136,6 +138,7 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
         try:
             await _upload_via_stream(bot, event.group_id, file_path, filename)
             await jm_cmd.send(f"✅ JM{id_str} 下载完成（流式上传），{fmt_name} 已发送到群")
+            success = True
             return
         except Exception:
             pass
@@ -148,13 +151,16 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
                 f"🔗 {_TRANSIT_BASE}/file/{file_id}\n"
                 f"⏰ 24小时自动删除"
             )
+            success = True
             return
         except Exception as e:
             _last_use.pop(cooldown_key, None)
             await jm_cmd.finish(f"❌ {fmt_name} 上传失败（已尝试 3 种方式）: {e}")
     finally:
-        file_path.unlink(missing_ok=True)
         for prefix in ('A', 'P'):
             d = _DL_TMP / f"{prefix}{id_str}"
             if d.exists():
                 shutil.rmtree(d, ignore_errors=True)
+
+        if not success:
+            file_path.unlink(missing_ok=True)

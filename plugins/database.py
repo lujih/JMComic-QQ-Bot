@@ -215,11 +215,12 @@ def use_download_quota(user_id: int, group_id: int) -> dict:
 
 
 def get_config(group_id: int, key: str, default: str = '') -> str:
-    row = _fetchone(
-        'SELECT value FROM config WHERE group_id=? AND key=?',
-        (group_id, key)
-    )
-    return row['value'] if row else default
+    with _db_lock:
+        row = _fetchone(
+            'SELECT value FROM config WHERE group_id=? AND key=?',
+            (group_id, key)
+        )
+        return row['value'] if row else default
 
 
 def set_config(group_id: int, key: str, value: str):
