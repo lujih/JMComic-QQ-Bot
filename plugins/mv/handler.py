@@ -33,10 +33,10 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     title, cover, detail_url = await run_sync(_search_missav, text, timeout=30)
 
     info_lines = []
-    if title:
-        if len(title) > 80:
-            title = title[:77] + "…"
-        info_lines.append(f"📹 {title}")
+    display_title = title or text.upper()
+    if len(display_title) > 80:
+        display_title = display_title[:77] + "…"
+    info_lines.append(f"📹 {display_title}")
 
     if detail_url:
         av_info = await run_sync(_fetch_av_detail, detail_url, timeout=30)
@@ -52,8 +52,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         if img_url:
             info_lines.append(f"[CQ:image,file={img_url}]")
 
-    if info_lines:
-        await mv_cmd.send("\n".join(info_lines))
+    await mv_cmd.send("\n".join(info_lines))
 
     results, has_next = await run_sync(search_torrent, text, page, timeout=30)
 
