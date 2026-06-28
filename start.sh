@@ -15,18 +15,14 @@ fi
 # 0b. Persist QQ session across HF Space restarts via /data/
 QQ_DATA_DIR=/data/.config/QQ
 mkdir -p "$QQ_DATA_DIR"
-if [ -d "$QQ_DATA_DIR" ]; then
-    if [ -L /app/.config/QQ ]; then
-        :
-    elif [ -d /app/.config/QQ ]; then
-        echo "[start] First boot: migrating QQ session to persistent storage..."
-        cp -a /app/.config/QQ/. "$QQ_DATA_DIR/"
-        rm -rf /app/.config/QQ
-    else
-        echo "[start] Creating QQ session directory..."
+if [ ! -f "$QQ_DATA_DIR/.migrated" ]; then
+    if [ -d /app/.config/QQ ]; then
+        echo "[start] Copying base QQ config to persistent storage..."
+        cp -a /app/.config/QQ/. "$QQ_DATA_DIR/" 2>/dev/null || true
     fi
+    touch "$QQ_DATA_DIR/.migrated"
 fi
-ln -sfn "$QQ_DATA_DIR" /app/.config/QQ
+mount --bind "$QQ_DATA_DIR" /app/.config/QQ 2>/dev/null || echo "[start] Warning: mount --bind failed, session persistence disabled"
 
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
 echo "[start] Writing NapCat WebUI config (port 7860)..."
