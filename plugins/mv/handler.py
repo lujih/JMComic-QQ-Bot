@@ -5,7 +5,7 @@ from nonebot.params import CommandArg
 
 from plugins.jm.common import run_sync
 from plugins.mv._cmd import mv_cmd
-from plugins.mv._search import _search_missav, _fetch_av_detail
+from plugins.mv._search import _search_missav, _fetch_av_detail, _search_javdb
 from plugins.mv._torrent import search as search_torrent
 
 
@@ -38,19 +38,24 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         display_title = display_title[:77] + "…"
     info_lines.append(f"📹 {display_title}")
 
+    av_info = {}
     if detail_url:
         av_info = await run_sync(_fetch_av_detail, detail_url, timeout=30)
-        if av_info.get('actresses'):
-            info_lines.append(f"🎬 女优: {' '.join(av_info['actresses'])}")
-        if av_info.get('date'):
-            info_lines.append(f"📅 日期: {av_info['date']}")
-        if av_info.get('duration'):
-            info_lines.append(f"⏱ 时长: {av_info['duration']}")
-        if av_info.get('studio'):
-            info_lines.append(f"🏢 制作商: {av_info['studio']}")
-        img_url = av_info.get('cover') or cover
-        if img_url:
-            info_lines.append(f"[CQ:image,file={img_url}]")
+
+    if not av_info:
+        av_info = await run_sync(_search_javdb, text, timeout=30)
+
+    if av_info.get('actresses'):
+        info_lines.append(f"🎬 女优: {' '.join(av_info['actresses'])}")
+    if av_info.get('date'):
+        info_lines.append(f"📅 日期: {av_info['date']}")
+    if av_info.get('duration'):
+        info_lines.append(f"⏱ 时长: {av_info['duration']}")
+    if av_info.get('studio'):
+        info_lines.append(f"🏢 制作商: {av_info['studio']}")
+    img_url = av_info.get('cover') or cover
+    if img_url:
+        info_lines.append(f"[CQ:image,file={img_url}]")
 
     await mv_cmd.send("\n".join(info_lines))
 
