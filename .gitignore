@@ -4,6 +4,10 @@ __pycache__/
 .idea/
 .vscode/
 *.log
+*.mjs
+*.zip
+
+.codegraph/
 
 # runtime data
 data/

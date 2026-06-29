@@ -31,7 +31,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
 | `option.yml` | jmcomic 配置（`impl: api`，无 plugin 段，格式由 Feature 传入） |
 | `Dockerfile` | 基于 `mlikiowa/napcat-docker` + Python venv + ffmpeg |
-| `start.sh` | 容器入口：反检测 → Xvfb → QQ 后台 → NoneBot 前台 |
+| `start.sh` | 容器入口：配置写入 → NapCat 解包 → Xvfb → QQ 后台 → NoneBot 前台 |
 
 ## 开发命令
 

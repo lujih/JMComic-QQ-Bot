@@ -7,6 +7,8 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 from nonebot.rule import is_type
 
+from jmcomic import jm_log
+
 from jm_option import get_option as _get_option
 from plugins.jm.common import run_sync
 
@@ -35,6 +37,7 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     except asyncio.TimeoutError:
         await jmv_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:
+        jm_log('jm_info', f'查询详情失败: {e}')
         await jmv_cmd.finish(f"❌ 查询失败: {e}")
 
     tags_str = "、".join(album.tags) if album.tags else "无"
@@ -67,6 +70,7 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     except asyncio.TimeoutError:
         await jms_cmd.finish("❌ 搜索超时，请稍后再试")
     except Exception as e:
+        jm_log('jm_info', f'搜索失败: {e}')
         await jms_cmd.finish(f"❌ 搜索失败: {e}")
 
     results = list(itertools.islice(page, 10))

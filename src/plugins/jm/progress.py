@@ -12,7 +12,10 @@ class ProgressJmDownloader(JmDownloader):
 
     def before_photo(self, photo):
         if self._cancel_event.is_set():
+            # NOTE: `photo.skip` 是 jmcomic 内部属性（非公共 API），
+            # jmcomic>=2.7.0 中 stable，升 3.x 大版本时需验证
             photo.skip = True
+            super().before_photo(photo)
             return
         super().before_photo(photo)
 

@@ -12,14 +12,15 @@ def search(query: str, page: int = 1):
     url = f"{SUKEBEI_BASE}/?q={quote(query, safe='')}&c=0_0&s=seeders&o=desc&p={page}"
 
     try:
-        resp = httpx.get(url, headers=_headers(), timeout=30, follow_redirects=True)
-        resp.raise_for_status()
+        with httpx.get(url, headers=_headers(), timeout=30, follow_redirects=True) as resp:
+            resp.raise_for_status()
+            html = resp.text
     except Exception as e:
         jm_log('mv.torrent', f"sukebei 请求失败: {e}")
         return [], False
 
-    results = _parse_page(resp.text)
-    has_next = _has_next_page(resp.text)
+    results = _parse_page(html)
+    has_next = _has_next_page(html)
     return results, has_next
 
 

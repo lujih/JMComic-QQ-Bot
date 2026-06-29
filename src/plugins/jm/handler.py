@@ -6,6 +6,8 @@ from nonebot.params import CommandArg
 
 from jm_option import get_option as _get_option
 from plugins.jm._cmd import jm_cmd
+from jmcomic import jm_log
+
 from plugins.jm.common import (
     _parse_format_flags,
     _check_cooldown,
@@ -74,6 +76,7 @@ async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
         rank_fn = getattr(client, f"{time_param}_ranking")
         page = await _run_sync(rank_fn, 1)
     except Exception as e:
+        jm_log('jm.handler', f'获取排行榜失败: {e}')
         await jm_cmd.finish(f"❌ 获取排行榜失败: {e}")
 
     period_cn = {"week": "周", "month": "月", "day": "日"}[time_param]
@@ -93,6 +96,7 @@ async def _handle_random(bot: Bot, event: GroupMessageEvent):
         client = option.build_jm_client()
         page = await _run_sync(client.month_ranking, 1)
     except Exception as e:
+        jm_log('jm.handler', f'获取推荐失败: {e}')
         await jm_cmd.finish(f"❌ 获取推荐失败: {e}")
 
     results = list(page)

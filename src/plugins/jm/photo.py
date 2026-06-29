@@ -13,6 +13,7 @@ from plugins.jm.common import (
     _semaphore,
     _is_cache_valid,
     _make_out_path,
+    _make_progress_cb,
     _clear_cooldown,
     _TMP_DIR,
 )
@@ -25,15 +26,7 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
     group_id = event.group_id
     loop = asyncio.get_running_loop()
 
-    def progress(msg: str):
-        try:
-            asyncio.run_coroutine_threadsafe(
-                bot.send_group_msg(group_id=group_id, message=msg),
-                loop,
-            )
-        except Exception:
-            pass
-
+    progress = _make_progress_cb(bot, group_id, loop)
     pdf_path = _make_out_path(photo_id, 'pdf')
 
     usage = shutil.disk_usage(tempfile.gettempdir())
@@ -73,16 +66,16 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
             dler.download_by_photo_detail(photo)
             dler.raise_if_has_exception()
 
-    try:
-        async with _semaphore:
+    async with _semaphore:
+        try:
             await _run_sync(_dl, timeout=120)
-    except asyncio.TimeoutError:
-        cancel_event.set()
-        _clear_cooldown(cooldown_key)
-        await jm_cmd.finish("❌ 下载超时，请稍后再试")
-    except Exception as e:
-        _clear_cooldown(cooldown_key)
-        await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
+        except asyncio.TimeoutError:
+            cancel_event.set()
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish("❌ 下载超时，请稍后再试")
+        except Exception as e:
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
 
     if not pdf_path.exists():
         _clear_cooldown(cooldown_key)

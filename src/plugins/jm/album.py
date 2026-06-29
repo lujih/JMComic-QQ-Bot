@@ -13,6 +13,7 @@ from plugins.jm.common import (
     _semaphore,
     _is_cache_valid,
     _make_out_path,
+    _make_progress_cb,
     _clear_cooldown,
     FORMAT_MAP,
     _DEFAULT_FMT,
@@ -28,19 +29,12 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
     loop = asyncio.get_running_loop()
     feature_cls, ext, fmt_name = FORMAT_MAP[fmt]
 
-    def progress(msg: str):
-        try:
-            asyncio.run_coroutine_threadsafe(
-                bot.send_group_msg(group_id=group_id, message=msg),
-                loop,
-            )
-        except Exception:
-            pass
-
+    progress = _make_progress_cb(bot, group_id, loop)
     out_path = _make_out_path(album_id, ext)
 
     usage = shutil.disk_usage(tempfile.gettempdir())
     if usage.free < 500 * 1024 * 1024:
+        _clear_cooldown(cooldown_key)
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
     option = _get_option()
@@ -77,16 +71,16 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
             dler.download_by_album_detail(album)
             dler.raise_if_has_exception()
 
-    try:
-        async with _semaphore:
+    async with _semaphore:
+        try:
             await _run_sync(_dl, timeout=300)
-    except asyncio.TimeoutError:
-        cancel_event.set()
-        _clear_cooldown(cooldown_key)
-        await jm_cmd.finish("❌ 下载超时，请稍后再试")
-    except Exception as e:
-        _clear_cooldown(cooldown_key)
-        await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
+        except asyncio.TimeoutError:
+            cancel_event.set()
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish("❌ 下载超时，请稍后再试")
+        except Exception as e:
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
 
     if not out_path.exists():
         _clear_cooldown(cooldown_key)

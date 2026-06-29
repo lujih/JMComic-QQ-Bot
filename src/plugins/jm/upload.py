@@ -5,6 +5,8 @@ import base64
 import shutil
 from pathlib import Path
 
+from jmcomic import jm_log
+
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 
 from plugins.jm._cmd import jm_cmd
@@ -75,8 +77,8 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
             await jm_cmd.send(f"✅ JM{id_str} 下载完成，{fmt_name} 已发送到群")
             success = True
             return
-        except Exception:
-            pass
+        except Exception as e:
+            jm_log('upload.tier1', f'upload_group_file 失败，降级到流式上传: {e}')
 
         # Tier 2 — upload_file_stream → upload_group_file
         try:
