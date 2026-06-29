@@ -261,8 +261,8 @@ def _search_javdb(query: str) -> dict:
                     m = re.search(r'Studio[：:]\s*(.+?)(?:\n|$)', det_text)
                     if m:
                         info['studio'] = m.group(1).strip()
-            except Exception:
-                pass
+            except Exception as e:
+                jm_log('mv.javdb', f'JavDB detail page request failed: {e}')
 
         if 'actresses' not in info or not info.get('actresses'):
             card_text = first.get_text()

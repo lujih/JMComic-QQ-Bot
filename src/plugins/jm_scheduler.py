@@ -8,7 +8,7 @@ require("nonebot_plugin_apscheduler")
 from nonebot_plugin_apscheduler import scheduler
 
 from jmcomic import jm_log
-from plugins._option import get_option
+from jm_option import get_option
 
 __plugin_name__ = "jm_scheduler"
 __plugin_usage__ = "每日早 9 点推送随机推荐"

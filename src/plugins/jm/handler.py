@@ -4,12 +4,13 @@ import random as _random
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 
-from plugins._option import get_option as _get_option
+from jm_option import get_option as _get_option
 from plugins.jm._cmd import jm_cmd
 from plugins.jm.common import (
     _parse_format_flags,
     _check_cooldown,
     _run_sync,
+    _DEFAULT_FMT,
     HELP_TEXT,
 )
 from plugins.jm.album import _download_album
@@ -49,6 +50,8 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
 
     if text.startswith("p"):
+        if fmt != _DEFAULT_FMT:
+            await jm_cmd.finish("单章下载仅支持 PDF 格式，请移除 --zip/--longimg")
         photo_id = text[1:]
         if not photo_id.isdigit():
             await jm_cmd.finish("格式: /jm p<章节ID>\n例如: /jm p350234")

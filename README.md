@@ -26,7 +26,6 @@ pinned: false
 | `/jmv <ID>` | 查看本子详情 |
 | `/jms <关键词>` | 搜索本子 |
 | `/mv <番号>` | 搜索番号并返回磁力链接（MissAV 标题 + Sukebei 做种） |
-| `/sign` | 每日签到获取积分（5~99 随机） |
 | 每日 9:00 自动推送 | 随机推荐到已配置群 |
 
 ## 快速部署
@@ -89,8 +88,7 @@ git push
 3. 登录后在左侧 **网络配置** 确认 `bot`（WS 客户端）状态为 ✅ **已连接**
 4. 已连接即表示机器人就绪
 
-> 登录信息持久化于 `/app/.config/QQ`。Space 48 小时内重启自动恢复，无需重复扫码。
-> 若 Space 因 48h 无活动被回收，需重新扫码。
+> HF Spaces 磁盘为临时存储，Space 重启后需重新扫码。
 
 ### 5. 验证
 
@@ -136,12 +134,6 @@ HF Spaces 免费版 48h 无活动会休眠，可选：
 | `/jm rank [周/月/日]` | 排行榜（默认周榜） | `/jm rank 月` |
 | `/jm random` | 随机推荐一本 | `/jm random` |
 | 每日 9:00 自动推送 | 随机推荐到群 | 需配置 `TARGET_GROUPS` |
-
-### 积分
-
-| 命令 | 说明 | 示例 |
-|---|---|---|
-| `/sign` | 每日签到获取积分 | `/sign` |
 
 ### 帮助
 
@@ -200,9 +192,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
      └── WebUI (7860)               ├── /jm      → 下载 + 格式导出
                                      ├── /jmv/jms → 查询
                                      ├── /mv      → MissAV 搜索 + Sukebei 磁力链
-                                     ├── /sign    → do_checkin（签到积分）
-                                     ├── database → 配额检查 + 积分扣减
-                                     └── 每日 9:00 → 自动推荐
+                                      └── 每日 9:00 → 自动推荐
 ```
 
 - **NapCatQQ**: NTQQ 官方协议实现，负责 QQ 消息收发，提供 WebUI 管理界面
@@ -232,22 +222,35 @@ JMComic-QQ-Bot/
 ├── bot.py                 # NoneBot2 启动入口
 ├── config/
 │   └── onebot11.json      # NapCat WS 客户端配置
-├── plugins/
-│   ├── __init__.py
-│   ├── _option.py         # jmcomic option 双检锁缓存
-│   ├── jm/                # /jm 命令包（handler / album / photo / upload / progress / common）
-│   ├── mv/                # /mv 命令包（handler / missav 搜索 / sukebei 磁力）
-│   ├── jm_info.py         # 查询命令（/jmv /jms）
-│   ├── jm_scheduler.py    # 定时推荐
-│   ├── database.py        # SQLite 数据库层（签到/积分/配置）
-│   └── jm_checkin.py      # /sign 签到命令
 ├── option.yml             # jmcomic 下载配置
 ├── requirements.txt       # Python 依赖
 ├── Dockerfile             # HF Spaces Docker 构建
 ├── start.sh               # 容器启动入口
 ├── .env                   # 环境变量（已 gitignore）
+├── pyproject.toml         # 项目配置
 ├── LICENSE
-└── README.md
+├── README.md
+└── src/
+    ├── jm_option.py       # jmcomic option 双检锁缓存
+    └── plugins/
+        ├── __init__.py
+        ├── jm_info.py     # 查询命令（/jmv /jms）
+        ├── jm_scheduler.py# 定时推荐
+        ├── jm/            # /jm 命令包
+        │   ├── __init__.py
+        │   ├── _cmd.py
+        │   ├── handler.py
+        │   ├── album.py
+        │   ├── photo.py
+        │   ├── upload.py
+        │   ├── progress.py
+        │   └── common.py
+        └── mv/            # /mv 命令包
+            ├── __init__.py
+            ├── _cmd.py
+            ├── handler.py
+            ├── _search.py
+            └── _torrent.py
 ```
 
 ## 开发指南

@@ -5,8 +5,7 @@ import asyncio
 
 from jmcomic import JmcomicException
 
-from plugins._option import get_option as _get_option
-from plugins.database import use_download_quota
+from jm_option import get_option as _get_option
 from plugins.jm._cmd import jm_cmd
 from plugins.jm.common import (
     _cleanup_stale_dirs,
@@ -14,10 +13,9 @@ from plugins.jm.common import (
     _semaphore,
     _is_cache_valid,
     _make_out_path,
-    _last_use,
+    _clear_cooldown,
     FORMAT_MAP,
     _DEFAULT_FMT,
-    _DL_TMP,
     _TMP_DIR,
 )
 from plugins.jm.progress import ProgressJmDownloader
@@ -64,12 +62,6 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
         await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)
         return
 
-    quota = await _run_sync(use_download_quota, event.user_id, event.group_id)
-    if not quota['ok']:
-        _last_use.pop(cooldown_key, None)
-        await jm_cmd.finish(quota['msg'])
-    progress(quota['msg'])
-
     progress(f"⏳ 正在下载并生成 {fmt_name}……")
 
     out_path.unlink(missing_ok=True)
@@ -90,14 +82,14 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
             await _run_sync(_dl, timeout=300)
     except asyncio.TimeoutError:
         cancel_event.set()
-        _last_use.pop(cooldown_key, None)
+        _clear_cooldown(cooldown_key)
         await jm_cmd.finish("❌ 下载超时，请稍后再试")
     except Exception as e:
-        _last_use.pop(cooldown_key, None)
+        _clear_cooldown(cooldown_key)
         await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
 
     if not out_path.exists():
-        _last_use.pop(cooldown_key, None)
+        _clear_cooldown(cooldown_key)
         await jm_cmd.finish(f"❌ {fmt_name} 生成失败，文件未找到")
 
     await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)

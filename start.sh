@@ -54,43 +54,10 @@ mkdir -p /app/.cache
 chown -R napcat:napcat /app/.config/QQ /app/.cache 2>/dev/null || true
 
 # 4. Anti-detection (from upstream napcat-docker entrypoint)
+# 在 HF Spaces 非特权容器中 mount --bind 不可用，跳过反检测相关操作
 rm -rf "/tmp/.X1-lock"
 rm -f "/.dockerenv" "/.dockerinit" "/run/.containerenv" "/run/systemd/container"
 rm -f "/dev/.dockerenv" "/run/systemd/container"
-
-HNAME=$(hostname)
-if [[ "$HNAME" == *docker* || "$HNAME" == *container* || "$HNAME" == *lxc* ]] \
-   || [[ "$HNAME" =~ ^[a-f0-9]{12,}$ ]]; then
-    hostname localhost
-    echo localhost > /etc/hostname
-fi
-
-mkdir -p /tmp/fake_cgroup
-FAKE=/tmp/fake_cgroup
-
-for f in /proc/self/cgroup /proc/1/cgroup; do
-    [ -f "$f" ] || continue
-    n=$(echo "$f" | tr '/' '_')
-    sed 's|/docker/|/system.slice/|g; s|/lxc/|/system.slice/|g; s|/kubepods/|/system.slice/|g; s|/containerd/|/system.slice/|g; s|/buildkit/|/system.slice/|g' \
-        "$f" > "$FAKE/$n"
-    mount --bind "$FAKE/$n" "$f" 2>/dev/null || true
-done
-
-# Hide Docker socket
-[ -S /var/run/docker.sock ] && mv /var/run/docker.sock /var/run/.docker.sock.hidden 2>/dev/null || true
-
-# Mask mountinfo
-for f in /proc/self/mountinfo /proc/1/mountinfo; do
-    [ -f "$f" ] || continue
-    n=$(echo "$f" | tr '/' '_')
-    sed '/docker/d; /containerd/d; /\.dockerenv/d' "$f" > "$FAKE/$n"
-    mount --bind "$FAKE/$n" "$f" 2>/dev/null || true
-done
-
-if [ -f /proc/1/cmdline ]; then
-    printf '/sbin/init\0' > "$FAKE/cmdline_1"
-    mount --bind "$FAKE/cmdline_1" /proc/1/cmdline 2>/dev/null || true
-fi
 
 # 5. Background: monitor QQ login and sync onebot11 config per account
 sync_onebot11_config() {

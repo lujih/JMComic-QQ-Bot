@@ -5,8 +5,7 @@ import asyncio
 
 from jmcomic import Feature, JmcomicException
 
-from plugins._option import get_option as _get_option
-from plugins.database import use_download_quota
+from jm_option import get_option as _get_option
 from plugins.jm._cmd import jm_cmd
 from plugins.jm.common import (
     _cleanup_stale_dirs,
@@ -14,8 +13,7 @@ from plugins.jm.common import (
     _semaphore,
     _is_cache_valid,
     _make_out_path,
-    _last_use,
-    _DL_TMP,
+    _clear_cooldown,
     _TMP_DIR,
 )
 from plugins.jm.progress import ProgressJmDownloader
@@ -40,7 +38,7 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
 
     usage = shutil.disk_usage(tempfile.gettempdir())
     if usage.free < 500 * 1024 * 1024:
-        _last_use.pop(cooldown_key, None)
+        _clear_cooldown(cooldown_key)
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
     option = _get_option()
@@ -59,12 +57,6 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
         progress("📦 命中缓存，直接发送 PDF……")
         await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
         return
-
-    quota = await _run_sync(use_download_quota, event.user_id, event.group_id)
-    if not quota['ok']:
-        _last_use.pop(cooldown_key, None)
-        await jm_cmd.finish(quota['msg'])
-    progress(quota['msg'])
 
     progress(f"⏳ 正在下载章节并生成 PDF……")
 
@@ -86,14 +78,14 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
             await _run_sync(_dl, timeout=120)
     except asyncio.TimeoutError:
         cancel_event.set()
-        _last_use.pop(cooldown_key, None)
+        _clear_cooldown(cooldown_key)
         await jm_cmd.finish("❌ 下载超时，请稍后再试")
     except Exception as e:
-        _last_use.pop(cooldown_key, None)
+        _clear_cooldown(cooldown_key)
         await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
 
     if not pdf_path.exists():
-        _last_use.pop(cooldown_key, None)
+        _clear_cooldown(cooldown_key)
         await jm_cmd.finish("❌ PDF 生成失败，文件未找到")
 
     await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)

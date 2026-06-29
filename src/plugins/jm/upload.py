@@ -8,7 +8,7 @@ from pathlib import Path
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 
 from plugins.jm._cmd import jm_cmd
-from plugins.jm.common import _last_use, _DL_TMP
+from plugins.jm.common import _clear_cooldown, _DL_TMP
 
 
 async def _upload_via_stream(bot: Bot, group_id: int, file_path: Path, filename: str):
@@ -57,9 +57,9 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
     success = False
     try:
         try:
-            st = file_path.stat()
+            file_path.stat()
         except FileNotFoundError:
-            _last_use.pop(cooldown_key, None)
+            _clear_cooldown(cooldown_key)
             await jm_cmd.finish(f"❌ {fmt_name} 上传失败（文件已被清理），请重新下载")
 
         filename = f"JM{id_str}.{ext}"
@@ -85,7 +85,7 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
             success = True
             return
         except Exception as e:
-            _last_use.pop(cooldown_key, None)
+            _clear_cooldown(cooldown_key)
             await jm_cmd.finish(f"❌ {fmt_name} 上传失败（已尝试 2 种方式）: {e}")
     finally:
         for prefix in ('A', 'P'):

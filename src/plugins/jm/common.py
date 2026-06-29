@@ -3,6 +3,7 @@ import time
 import shutil
 import tempfile
 import asyncio
+import threading
 from collections import OrderedDict
 from pathlib import Path
 
@@ -18,11 +19,13 @@ FORMAT_MAP = {
 
 _DEFAULT_FMT = 'pdf'
 _last_use: OrderedDict[str, float] = OrderedDict()
+_cooldown_lock = threading.Lock()
 _MAX_COOLDOWN_ENTRIES = 10000
 
 _semaphore = asyncio.Semaphore(1)
 _TMP_DIR = Path(tempfile.gettempdir()) / "jm"
 _DL_TMP = Path(tempfile.gettempdir()) / "jm_dl"
+_TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _cleanup_stale_dirs():
@@ -83,7 +86,6 @@ HELP_TEXT = (
     "/jm rank [周/月/日]     查看排行榜（默认周榜）\n"
     "/jm random             随机推荐一本\n"
     "/jm help               显示本帮助\n"
-    "/sign                  每日签到获取积分（5~99 随机）\n\n"
     "/jmv <ID>               查看本子详情\n"
     "/jms <关键词>           搜索本子\n"
     "/mv <番号>              搜索番号并返回磁力链接\n"
@@ -93,14 +95,20 @@ HELP_TEXT = (
 
 def _check_cooldown(key: str) -> int:
     now = time.time()
-    while len(_last_use) > _MAX_COOLDOWN_ENTRIES:
-        _last_use.popitem(last=False)
+    with _cooldown_lock:
+        while len(_last_use) > _MAX_COOLDOWN_ENTRIES:
+            _last_use.popitem(last=False)
 
-    last = _last_use.get(key, 0)
-    remaining = COOLDOWN_SECONDS - (now - last)
-    if remaining > 0:
-        return int(remaining)
+        last = _last_use.get(key, 0)
+        remaining = COOLDOWN_SECONDS - (now - last)
+        if remaining > 0:
+            return int(remaining)
 
-    _last_use[key] = now
-    _last_use.move_to_end(key)
-    return 0
+        _last_use[key] = now
+        _last_use.move_to_end(key)
+        return 0
+
+
+def _clear_cooldown(key: str):
+    with _cooldown_lock:
+        _last_use.pop(key, None)

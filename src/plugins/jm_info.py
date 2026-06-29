@@ -7,7 +7,7 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 from nonebot.rule import is_type
 
-from plugins._option import get_option as _get_option
+from jm_option import get_option as _get_option
 from plugins.jm.common import run_sync
 
 __plugin_name__ = "jm_info"
