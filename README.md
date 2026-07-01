@@ -238,7 +238,7 @@ JMComic-QQ-Bot/
         ├── jm_scheduler.py# 定时推荐
         ├── jm/            # /jm 命令包
         │   ├── __init__.py
-        │   ├── _cmd.py
+        │   ├── cmd.py
         │   ├── handler.py
         │   ├── album.py
         │   ├── photo.py
@@ -247,7 +247,7 @@ JMComic-QQ-Bot/
         │   └── common.py
         └── mv/            # /mv 命令包
             ├── __init__.py
-            ├── _cmd.py
+            ├── cmd.py
             ├── handler.py
             ├── _search.py
             └── _torrent.py
