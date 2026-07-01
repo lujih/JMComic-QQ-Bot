@@ -38,7 +38,7 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         await jmv_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:
         jm_log('jm_info', f'查询详情失败: {e}')
-        await jmv_cmd.finish(f"❌ 查询失败: {e}")
+        await jmv_cmd.finish("❌ 查询失败")
 
     tags_str = "、".join(album.tags) if album.tags else "无"
     lines = [
@@ -71,7 +71,7 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         await jms_cmd.finish("❌ 搜索超时，请稍后再试")
     except Exception as e:
         jm_log('jm_info', f'搜索失败: {e}')
-        await jms_cmd.finish(f"❌ 搜索失败: {e}")
+        await jms_cmd.finish("❌ 搜索失败")
 
     results = list(itertools.islice(page, 10))
     if not results:

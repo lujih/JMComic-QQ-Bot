@@ -12,5 +12,6 @@ client:
 download:
   image:
     suffix: .jpg
+    decode: false
 
 

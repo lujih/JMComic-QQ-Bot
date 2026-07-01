@@ -9,7 +9,7 @@ from jmcomic import jm_log
 
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 
-from plugins.jm._cmd import jm_cmd
+from plugins.jm.cmd import jm_cmd
 from plugins.jm.common import _clear_cooldown, _DL_TMP
 
 
@@ -31,7 +31,7 @@ async def _upload_via_stream(bot: Bot, group_id: int, file_path: Path, filename:
             chunk = f.read(chunk_size)
             if not chunk:
                 break
-            await bot.call_api("upload_file_stream", **{
+            await bot.call_api("upload_file_stream", timeout=30, **{
                 "stream_id": stream_id,
                 "chunk_data": base64.b64encode(chunk).decode(),
                 "chunk_index": i,
@@ -42,7 +42,7 @@ async def _upload_via_stream(bot: Bot, group_id: int, file_path: Path, filename:
                 "file_retention": 300_000,
             })
 
-        resp = await bot.call_api("upload_file_stream", **{
+        resp = await bot.call_api("upload_file_stream", timeout=30, **{
             "stream_id": stream_id,
             "is_complete": True,
         })
@@ -69,12 +69,11 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
         # Tier 1 — upload_group_file
         try:
             await bot.call_api(
-                "upload_group_file",
+                "upload_group_file", timeout=120,
                 group_id=event.group_id,
                 file=str(file_path.resolve()),
                 name=filename,
             )
-            await jm_cmd.send(f"✅ JM{id_str} 下载完成，{fmt_name} 已发送到群")
             success = True
             return
         except Exception as e:
@@ -83,12 +82,12 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
         # Tier 2 — upload_file_stream → upload_group_file
         try:
             await _upload_via_stream(bot, event.group_id, file_path, filename)
-            await jm_cmd.send(f"✅ JM{id_str} 下载完成（流式上传），{fmt_name} 已发送到群")
             success = True
             return
         except Exception as e:
             _clear_cooldown(cooldown_key)
-            await jm_cmd.finish(f"❌ {fmt_name} 上传失败（已尝试 2 种方式）: {e}")
+            jm_log('upload.tier2', f'流式上传失败: {e}')
+            await jm_cmd.finish(f"❌ {fmt_name} 上传失败（已尝试 2 种方式）")
     finally:
         for prefix in ('A', 'P'):
             d = _DL_TMP / f"{prefix}{id_str}"

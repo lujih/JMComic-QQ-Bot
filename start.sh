@@ -128,6 +128,7 @@ fi
 
 # 9. Start NoneBot2 (foreground — keeps container alive)
 echo "[start] Starting NoneBot2..."
+export PYTHONUNBUFFERED=1
 python bot.py
 
 # 10. Cleanup on exit

@@ -5,7 +5,7 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 
 from jm_option import get_option as _get_option
-from plugins.jm._cmd import jm_cmd
+from plugins.jm.cmd import jm_cmd
 from jmcomic import jm_log
 
 from plugins.jm.common import (
@@ -46,17 +46,16 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     if len(tokens) >= 2 and photo_tokens:
         await jm_cmd.finish("格式: /jm <本子ID>\n下载单章请用 /jm p<章节ID>")
 
-    cooldown_key = f"{event.group_id}:{event.user_id}"
-    remaining = _check_cooldown(cooldown_key)
-    if remaining:
-        await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
-
     if text.startswith("p"):
         if fmt != _DEFAULT_FMT:
             await jm_cmd.finish("单章下载仅支持 PDF 格式，请移除 --zip/--longimg")
         photo_id = text[1:]
         if not photo_id.isdigit():
             await jm_cmd.finish("格式: /jm p<章节ID>\n例如: /jm p350234")
+        cooldown_key = f"{event.user_id}:p{photo_id}"
+        remaining = _check_cooldown(cooldown_key)
+        if remaining:
+            await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
         await _download_photo(bot, event, photo_id, cooldown_key)
         return
 
@@ -64,7 +63,12 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     if not match:
         await jm_cmd.finish("格式: /jm <本子ID>\n例如: /jm 438516")
 
-    await _download_album(bot, event, match.group(), cooldown_key, fmt)
+    album_id = match.group()
+    cooldown_key = f"{event.user_id}:{album_id}"
+    remaining = _check_cooldown(cooldown_key)
+    if remaining:
+        await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+    await _download_album(bot, event, album_id, cooldown_key, fmt)
 
 
 async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
@@ -77,7 +81,7 @@ async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
         page = await _run_sync(rank_fn, 1)
     except Exception as e:
         jm_log('jm.handler', f'获取排行榜失败: {e}')
-        await jm_cmd.finish(f"❌ 获取排行榜失败: {e}")
+        await jm_cmd.finish("❌ 获取排行榜失败")
 
     period_cn = {"week": "周", "month": "月", "day": "日"}[time_param]
     results = list(page)[:15]
@@ -97,7 +101,7 @@ async def _handle_random(bot: Bot, event: GroupMessageEvent):
         page = await _run_sync(client.month_ranking, 1)
     except Exception as e:
         jm_log('jm.handler', f'获取推荐失败: {e}')
-        await jm_cmd.finish(f"❌ 获取推荐失败: {e}")
+        await jm_cmd.finish("❌ 获取推荐失败")
 
     results = list(page)
     if not results:

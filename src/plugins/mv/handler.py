@@ -5,7 +5,7 @@ from nonebot.params import CommandArg
 from jmcomic import jm_log
 
 from plugins.jm.common import run_sync
-from plugins.mv._cmd import mv_cmd
+from plugins.mv.cmd import mv_cmd
 from plugins.mv._search import _search_missav, _fetch_av_detail, _search_javdb
 from plugins.mv._torrent import search as search_torrent
 
@@ -28,8 +28,6 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         text = re.sub(r'--page\s+\d+', '', text).strip()
         if page < 1:
             page = 1
-
-    await mv_cmd.send(f"🔍 正在搜索 {text}……")
 
     try:
         title, cover, detail_url = await run_sync(_search_missav, text, timeout=30)
@@ -68,16 +66,18 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     if img_url:
         info_lines.append(f"[CQ:image,file={img_url}]")
 
-    await mv_cmd.send("\n".join(info_lines))
-
     try:
         results, has_next = await run_sync(search_torrent, text, page, timeout=30)
     except Exception as e:
         jm_log('mv.torrent', f"sukebei 搜索失败: {e}")
-        await mv_cmd.finish("❌ 磁力搜索失败，请稍后再试")
+        info_lines.append("")
+        info_lines.append("❌ 磁力搜索失败，请稍后再试")
+        await mv_cmd.finish("\n".join(info_lines))
 
     if not results:
-        await mv_cmd.finish(f"❌ 未找到 {text} 的磁力链接")
+        info_lines.append("")
+        info_lines.append(f"❌ 未找到 {text} 的磁力链接")
+        await mv_cmd.finish("\n".join(info_lines))
 
     lines = []
     for i, r in enumerate(results[:5], 1):
@@ -95,8 +95,6 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             warning = "  ⚠️低存活"
 
         magnet = r['magnet']
-        if '&' in magnet:
-            magnet = magnet.split('&')[0]
 
         lines.append(f"[{i}] {name}")
         lines.append(f"    {r['size']}  👍{seeders} 👎{leechers}{warning}")
@@ -111,4 +109,5 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     lines.append("——")
     lines.append("  ".join(nav_parts))
 
-    await mv_cmd.finish("\n".join(lines))
+    full_lines = info_lines + [""] + lines if info_lines else lines
+    await mv_cmd.finish("\n".join(full_lines))

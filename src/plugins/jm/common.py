@@ -7,11 +7,9 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 
-from nonebot.adapters.onebot.v11 import Bot
-
 from jmcomic import Feature, jm_log
 
-COOLDOWN_SECONDS = 60
+COOLDOWN_SECONDS = 15
 
 FORMAT_MAP = {
     'pdf':     (Feature.export_pdf,     'pdf', 'PDF'),
@@ -77,18 +75,6 @@ def _is_cache_valid(path: Path, max_age=1800):
 
 def _make_out_path(id_str: str, ext: str) -> Path:
     return _TMP_DIR / f"{id_str}.{ext}"
-
-
-def _make_progress_cb(bot: Bot, group_id: int, loop: asyncio.AbstractEventLoop):
-    def progress(msg: str):
-        try:
-            asyncio.run_coroutine_threadsafe(
-                bot.send_group_msg(group_id=group_id, message=msg),
-                loop,
-            )
-        except Exception as e:
-            jm_log('jm.progress', f'发送进度消息失败: {e}')
-    return progress
 
 
 HELP_TEXT = (

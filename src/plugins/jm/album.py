@@ -3,17 +3,16 @@ import tempfile
 import threading
 import asyncio
 
-from jmcomic import JmcomicException
+from jmcomic import jm_log
 
 from jm_option import get_option as _get_option
-from plugins.jm._cmd import jm_cmd
+from plugins.jm.cmd import jm_cmd
 from plugins.jm.common import (
     _cleanup_stale_dirs,
     _run_sync,
     _semaphore,
     _is_cache_valid,
     _make_out_path,
-    _make_progress_cb,
     _clear_cooldown,
     FORMAT_MAP,
     _DEFAULT_FMT,
@@ -25,11 +24,8 @@ from plugins.jm.upload import _upload_and_cleanup
 
 async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEFAULT_FMT):
     _cleanup_stale_dirs()
-    group_id = event.group_id
-    loop = asyncio.get_running_loop()
     feature_cls, ext, fmt_name = FORMAT_MAP[fmt]
 
-    progress = _make_progress_cb(bot, group_id, loop)
     out_path = _make_out_path(album_id, ext)
 
     usage = shutil.disk_usage(tempfile.gettempdir())
@@ -41,8 +37,10 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
     client = option.build_jm_client()
     try:
         album = await _run_sync(client.get_album_detail, album_id)
-    except JmcomicException as e:
-        await jm_cmd.finish(f"❌ 查询失败: {e}")
+    except Exception as e:
+        _clear_cooldown(cooldown_key)
+        jm_log('album.detail', f'查询本子详情失败: {e}')
+        await jm_cmd.finish("❌ 查询失败")
 
     tags_str = f"\n🏷️ {'、'.join(album.tags[:5])}" if album.tags else ""
     await jm_cmd.send(
@@ -52,11 +50,8 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
     )
 
     if _is_cache_valid(out_path):
-        progress(f"📦 命中缓存，直接发送 {fmt_name}……")
         await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)
         return
-
-    progress(f"⏳ 正在下载并生成 {fmt_name}……")
 
     out_path.unlink(missing_ok=True)
 
@@ -65,7 +60,7 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
     cancel_event = threading.Event()
 
     def _dl():
-        dler = ProgressJmDownloader(option, progress, fmt_name=fmt_name, cancel_event=cancel_event)
+        dler = ProgressJmDownloader(option, cancel_event=cancel_event)
         with dler:
             dler.add_features(extra, 'download_album')
             dler.download_by_album_detail(album)
@@ -76,11 +71,12 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
             await _run_sync(_dl, timeout=300)
         except asyncio.TimeoutError:
             cancel_event.set()
+            await asyncio.sleep(3)
             _clear_cooldown(cooldown_key)
             await jm_cmd.finish("❌ 下载超时，请稍后再试")
-        except Exception as e:
+        except Exception:
             _clear_cooldown(cooldown_key)
-            await jm_cmd.finish(f"❌ 下载失败: {type(e).__name__}: {e}")
+            await jm_cmd.finish("❌ 下载失败，请稍后再试")
 
     if not out_path.exists():
         _clear_cooldown(cooldown_key)
