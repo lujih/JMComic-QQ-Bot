@@ -34,8 +34,8 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
         _clear_cooldown(cooldown_key)
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
-    option = _get_option()
     try:
+        option = _get_option()
         async with option.new_jm_async_client() as cl:
             album = await asyncio.wait_for(cl.get_album_detail(album_id), timeout=60)
     except asyncio.TimeoutError:
@@ -59,12 +59,6 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
         f"{tags_str}"
     )
 
-    if _is_cache_valid(out_path):
-        await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)
-        return
-
-    out_path.unlink(missing_ok=True)
-
     kw = {f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR)}
     extra = feature_cls(**kw, filename_rule='Aid')
 
@@ -78,20 +72,27 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
             dler.raise_if_has_exception()
 
     async with _semaphore:
+        if _is_cache_valid(out_path):
+            await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)
+            return
+
+        out_path.unlink(missing_ok=True)
+
         try:
             await run_sync(_dl, timeout=300)
         except asyncio.TimeoutError:
             cancel_event.set()
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)
             _clear_cooldown(cooldown_key)
             await jm_cmd.finish("❌ 下载超时，请稍后再试")
         except Exception as e:
+            cancel_event.set()
             jm_log('jm.album.download', f'下载本子 {album_id} 失败: {e}')
             _clear_cooldown(cooldown_key)
             await jm_cmd.finish("❌ 下载失败，请稍后再试")
 
-    if not out_path.exists():
-        _clear_cooldown(cooldown_key)
-        await jm_cmd.finish(f"❌ {fmt_name} 生成失败，文件未找到")
+        if not out_path.exists():
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish(f"❌ {fmt_name} 生成失败，文件未找到")
 
-    await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)
+        await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)

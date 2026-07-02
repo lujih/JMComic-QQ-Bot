@@ -163,7 +163,9 @@ dir_rule:
 
 client:
   impl: api             # 必须用 api（移动端 API），HF 海外节点无法访问 HTML 页面
+  async_impl: async_api
   retry_times: 3
+  cache: level_option
   postman:
     meta_data:
       timeout: 30

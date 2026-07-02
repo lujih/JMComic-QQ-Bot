@@ -42,7 +42,7 @@ def search_video(query: str) -> dict:
         soup = BeautifulSoup(html, 'html.parser')
         return _parse_page(soup)
     except Exception as e:
-        jm_log('mv.search', f'jav321 parse failed: {e}')
+        jm_log('jm.mv.search', f'jav321 parse failed: {e}')
         return {}
 
 
@@ -54,10 +54,10 @@ def _fetch_page(url: str) -> str | None:
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             return None
-        jm_log('mv.search', f'jav321 request failed: {e}')
+        jm_log('jm.mv.search', f'jav321 request failed: {e}')
         return None
     except Exception as e:
-        jm_log('mv.search', f'jav321 request failed: {e}')
+        jm_log('jm.mv.search', f'jav321 request failed: {e}')
         return None
 
 
@@ -68,7 +68,7 @@ def _search_page(query: str) -> str | None:
         resp.raise_for_status()
         return resp.text
     except Exception as e:
-        jm_log('mv.search', f'jav321 search failed: {e}')
+        jm_log('jm.mv.search', f'jav321 search failed: {e}')
         return None
 
 

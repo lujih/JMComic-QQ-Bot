@@ -8,7 +8,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from jmcomic import Feature, jm_log
-from plugins._common import run_sync
+from _common import run_sync
 
 COOLDOWN_SECONDS = 15
 
@@ -23,7 +23,7 @@ _last_use: OrderedDict[str, float] = OrderedDict()
 _cooldown_lock = threading.Lock()
 _MAX_COOLDOWN_ENTRIES = 10000
 
-_semaphore = asyncio.Semaphore(1)
+_semaphore = asyncio.Semaphore(3)
 _TMP_DIR = Path(tempfile.gettempdir()) / "jm"
 _DL_TMP = Path(tempfile.gettempdir()) / "jm_dl"
 _TMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -59,7 +59,10 @@ def _parse_format_flags(text: str):
 
 
 def _is_cache_valid(path: Path, max_age=1800):
-    return path.exists() and time.time() - path.stat().st_mtime < max_age
+    try:
+        return path.exists() and time.time() - path.stat().st_mtime < max_age
+    except OSError:
+        return False
 
 
 def _make_out_path(id_str: str, ext: str) -> Path:
@@ -85,7 +88,7 @@ HELP_TEXT = (
 def _check_cooldown(key: str) -> int:
     now = time.time()
     with _cooldown_lock:
-        while len(_last_use) > _MAX_COOLDOWN_ENTRIES:
+        if len(_last_use) > _MAX_COOLDOWN_ENTRIES:
             _last_use.popitem(last=False)
 
         last = _last_use.get(key, 0)

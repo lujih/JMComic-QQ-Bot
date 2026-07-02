@@ -25,7 +25,7 @@ def _parse_target_groups() -> list[int]:
 async def daily_recommend():
     groups = _parse_target_groups()
     if not groups:
-        jm_log("scheduler.info", "每日推荐：跳过推送（TARGET_GROUPS 未配置）")
+        jm_log("jm.scheduler.info", "每日推荐：跳过推送（TARGET_GROUPS 未配置）")
         return
 
     try:
@@ -34,14 +34,14 @@ async def daily_recommend():
             page = await asyncio.wait_for(cl.month_ranking(1), timeout=30)
         results = list(page)
         if not results:
-            jm_log("scheduler.info", "每日推荐：排行榜为空")
+            jm_log("jm.scheduler.info", "每日推荐：排行榜为空")
             return
         aid, title = random.choice(results)
-    except asyncio.TimeoutError:
-        jm_log("scheduler.error", "每日推荐：获取排行榜超时")
+    except asyncio.TimeoutError as e:
+        jm_log("jm.scheduler.error", "每日推荐：获取排行榜超时", e)
         return
     except Exception as e:
-        jm_log("scheduler.error", f"每日推荐：获取失败 — {e}")
+        jm_log("jm.scheduler.error", "每日推荐：获取失败", e)
         return
 
     text = f"🎲 今日推荐\nJM{aid} {title}\n发送 /jm {aid} 下载"
@@ -49,17 +49,17 @@ async def daily_recommend():
     try:
         bot = get_bot()
     except ValueError:
-        jm_log("scheduler.error", "每日推荐：Bot 未连接")
+        jm_log("jm.scheduler.error", "每日推荐：Bot 未连接")
         return
     except Exception as e:
-        jm_log("scheduler.error", f"每日推荐：获取 Bot 失败 — {e}")
+        jm_log("jm.scheduler.error", "每日推荐：获取 Bot 失败", e)
         return
 
     for gid in groups:
         try:
             await bot.send_msg(message_type="group", group_id=gid, message=text)
         except Exception as e:
-            jm_log("scheduler.error", f"每日推荐：发送到群 {gid} 失败 — {e}")
+            jm_log("jm.scheduler.error", f"每日推荐：发送到群 {gid} 失败 — {e}")
 
 
 

@@ -30,8 +30,8 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
         _clear_cooldown(cooldown_key)
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
-    option = _get_option()
     try:
+        option = _get_option()
         async with option.new_jm_async_client() as cl:
             photo = await asyncio.wait_for(cl.get_photo_detail(photo_id), timeout=60)
     except asyncio.TimeoutError:
@@ -53,12 +53,6 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
         f"🆔 p{photo.photo_id} | 🖼️ {len(photo)}页"
     )
 
-    if _is_cache_valid(pdf_path):
-        await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
-        return
-
-    pdf_path.unlink(missing_ok=True)
-
     extra = Feature.export_pdf(pdf_dir=str(_TMP_DIR), filename_rule='Pid')
 
     cancel_event = threading.Event()
@@ -71,20 +65,27 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
             dler.raise_if_has_exception()
 
     async with _semaphore:
+        if _is_cache_valid(pdf_path):
+            await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
+            return
+
+        pdf_path.unlink(missing_ok=True)
+
         try:
             await run_sync(_dl, timeout=120)
         except asyncio.TimeoutError:
             cancel_event.set()
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)
             _clear_cooldown(cooldown_key)
             await jm_cmd.finish("❌ 下载超时，请稍后再试")
         except Exception as e:
+            cancel_event.set()
             jm_log('jm.photo.download', f'下载章节 {photo_id} 失败: {e}')
             _clear_cooldown(cooldown_key)
             await jm_cmd.finish("❌ 下载失败，请稍后再试")
 
-    if not pdf_path.exists():
-        _clear_cooldown(cooldown_key)
-        await jm_cmd.finish("❌ PDF 生成失败，文件未找到")
+        if not pdf_path.exists():
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish("❌ PDF 生成失败，文件未找到")
 
-    await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
+        await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)

@@ -4,7 +4,7 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 from jmcomic import jm_log
 
-from plugins._common import run_sync
+from _common import run_sync
 from plugins.mv.cmd import mv_cmd
 from plugins.mv._search import search_video
 from plugins.mv._torrent import search as search_torrent
@@ -59,7 +59,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     try:
         results, has_next = await run_sync(search_torrent, text, page, timeout=30)
     except Exception as e:
-        jm_log('mv.torrent', f"sukebei 搜索失败: {e}")
+        jm_log('jm.mv.torrent', f"sukebei 搜索失败: {e}")
         await mv_cmd.finish("❌ 磁力搜索失败，请稍后再试")
 
     if not results:

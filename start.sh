@@ -9,7 +9,8 @@ mkdir -p "$NAPCAT_CONFIG"
 # 0a. Generate random WebUI token if not set
 if [ -z "${WEBUI_TOKEN}" ]; then
     WEBUI_TOKEN=$(openssl rand -hex 16)
-    echo "[start] Generated random WebUI token: ${WEBUI_TOKEN}"
+    true  # WebUI token 随机生成；需要时取消注释下一行以调试
+    # echo "[start] Generated random WebUI token: ${WEBUI_TOKEN}"
 fi
 
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
@@ -44,12 +45,12 @@ data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN',
 with open(path, 'w') as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 "
-chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || true
+chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || echo "[start] WARNING: chown for napcat user failed" >&2
 
 # 3a. Ensure temp dirs exist and are writable by napcat user
 mkdir -p /app/.config/QQ/NapCat/temp
 mkdir -p /app/.cache
-chown -R napcat:napcat /app/.config/QQ /app/.cache 2>/dev/null || true
+chown -R napcat:napcat /app/.config/QQ /app/.cache 2>/dev/null || echo "[start] WARNING: chown for /app/.config/QQ or /app/.cache failed" >&2
 
 # 4. Anti-detection (from upstream napcat-docker entrypoint)
 # 在 HF Spaces 非特权容器中 mount --bind 不可用，跳过反检测相关操作
