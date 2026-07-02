@@ -6,7 +6,7 @@ from jmcomic import jm_log
 
 from plugins.jm.common import run_sync
 from plugins.mv.cmd import mv_cmd
-from plugins.mv._search import _search_missav, _fetch_av_detail, _search_javdb
+from plugins.mv._search import search_video
 from plugins.mv._torrent import search as search_torrent
 
 
@@ -29,40 +29,25 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         if page < 1:
             page = 1
 
-    try:
-        title, cover, detail_url = await run_sync(_search_missav, text, timeout=30)
-    except Exception as e:
-        jm_log('mv.search', f"MissAV 搜索失败: {e}")
-        title, cover, detail_url = "", "", ""
+    av_info = await run_sync(search_video, text, timeout=30)
+    if not av_info:
+        await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的信息")
 
     info_lines = []
-    display_title = title or text.upper()
+    display_title = av_info.get('title', text.upper())
     if len(display_title) > 80:
         display_title = display_title[:77] + "…"
     info_lines.append(f"📹 {display_title}")
-
-    av_info = {}
-    try:
-        if detail_url:
-            av_info = await run_sync(_fetch_av_detail, detail_url, timeout=30)
-    except Exception as e:
-        jm_log('mv.detail', f"MissAV 详情获取失败: {e}")
-
-    try:
-        if not av_info:
-            av_info = await run_sync(_search_javdb, text, timeout=30)
-    except Exception as e:
-        jm_log('mv.javdb', f"JavDB 搜索失败: {e}")
 
     if av_info.get('actresses'):
         info_lines.append(f"🎬 女优: {' '.join(av_info['actresses'])}")
     if av_info.get('date'):
         info_lines.append(f"📅 日期: {av_info['date']}")
-    if av_info.get('duration'):
-        info_lines.append(f"⏱ 时长: {av_info['duration']}")
     if av_info.get('studio'):
         info_lines.append(f"🏢 制作商: {av_info['studio']}")
-    img_url = av_info.get('cover') or cover
+    if av_info.get('duration'):
+        info_lines.append(f"⏱ 时长: {av_info['duration']}")
+    img_url = av_info.get('cover')
     if img_url:
         info_lines.append(f"[CQ:image,file={img_url}]")
 

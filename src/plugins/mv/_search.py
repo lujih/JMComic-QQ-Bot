@@ -1,271 +1,158 @@
-import os
 import re
-from urllib.parse import quote
 
+import httpx
 from bs4 import BeautifulSoup
-from curl_cffi import requests
 from jmcomic import jm_log
 
-MISSAV_BASE = os.getenv("MISSAV_BASE_URL", "https://missav.ai")
-MISSAV_SEARCH = f"{MISSAV_BASE}/search/{{query}}"
-JAVDB_SEARCH = "https://javdb.com/search?q={query}&f=all"
-_IMPERSONATE = "chrome124"
+JAV321_BASE = "https://www.jav321.com"
+_TIMEOUT = 20
 
 
-def _request(url, timeout=20, headers=None):
-    with requests.Session() as session:
-        return session.get(url, impersonate=_IMPERSONATE, timeout=timeout, headers=headers)
-
-
-def _extract_card_link(card, img):
-    link = card.select_one('a') or img.find_parent('a')
-    if link and link.get('href'):
-        href = link['href']
-        if href.startswith('http') or href.startswith('//'):
-            return href
-        return f'https://missav.ai{href}'
-    return ''
-
-
-def _search_missav(query: str):
-    url = MISSAV_SEARCH.format(query=quote(query, safe=''))
-
-    try:
-        resp = _request(url)
-    except Exception as e:
-        jm_log('mv.search', f'MissAV search request failed: {e}')
-        return "", "", ""
-
-    if resp.status_code != 200:
-        jm_log('mv.search', f'MissAV search returned {resp.status_code}')
-        return "", "", ""
-
-    try:
-        soup = BeautifulSoup(resp.content, 'html.parser')
-        cards = soup.select('div.thumbnail')
-        if not cards:
-            return "", "", ""
-
-        query_upper = query.upper()
-        for card in cards[:10]:
-            img = card.select_one('img')
-            if img and img.get('alt', ''):
-                alt = img['alt'].strip()
-                if alt and query_upper in alt.upper():
-                    thumbnail = (img.get('data-src', '') or img.get('src', '') or '')
-                    detail_url = _extract_card_link(card, img)
-                    return alt, thumbnail, detail_url
-
-        first = cards[0]
-        img = first.select_one('img')
-        if img and img.get('alt', ''):
-            thumbnail = (img.get('data-src', '') or img.get('src', '') or '')
-            detail_url = _extract_card_link(first, img)
-            return img['alt'].strip(), thumbnail, detail_url
-    except Exception as e:
-        jm_log('mv.search', f'MissAV search parse failed: {e}')
-
-    return "", "", ""
-
-
-def _fetch_av_detail(detail_url: str) -> dict:
-    if not detail_url:
-        return {}
-
-    try:
-        resp = _request(detail_url)
-    except Exception as e:
-        jm_log('mv.detail', f'MissAV detail request failed: {e}')
-        return {}
-
-    if resp.status_code != 200:
-        jm_log('mv.detail', f'MissAV detail returned {resp.status_code}')
-        return {}
-
-    try:
-        soup = BeautifulSoup(resp.content, 'html.parser')
-        info = {}
-        page_text = soup.get_text()
-
-        h1 = soup.select_one('h1')
-        if h1:
-            info['title'] = h1.get_text(strip=True)
-
-        meta_img = soup.select_one('meta[property="og:image"]')
-        if meta_img and meta_img.get('content'):
-            info['cover'] = meta_img['content']
-
-        date_patterns = [
-            r'(\d{4}[/-]\d{1,2}[/-]\d{1,2})',
-            r'發售日[：:]\s*(\S+)',
-            r'發行日期[：:]\s*(\S+)',
-            r'Release Date[：:]\s*(\S+)',
-        ]
-        for p in date_patterns:
-            m = re.search(p, page_text)
-            if m:
-                info['date'] = m.group(1)
-                break
-
-        dur_patterns = [
-            r'(\d+)\s*分鐘',
-            r'時長[：:]\s*(\S+)',
-            r'Duration[：:]\s*(\S+)',
-        ]
-        for p in dur_patterns:
-            m = re.search(p, page_text)
-            if m:
-                info['duration'] = m.group(1)
-                break
-
-        m = re.search(r'(\d+)\s*min', page_text, re.I)
-        if 'duration' not in info and m:
-            info['duration'] = m.group(1) + ' min'
-
-        studio_patterns = [
-            r'製作商[：:]\s*(.+?)(?:\n|$)',
-            r'Studio[：:]\s*(.+?)(?:\n|$)',
-        ]
-        for p in studio_patterns:
-            m = re.search(p, page_text)
-            if m:
-                info['studio'] = m.group(1).strip()
-                break
-
-        actresses = []
-        for a in soup.find_all('a'):
-            href = a.get('href', '')
-            if '/actress/' in href or '/actor/' in href:
-                name = a.get_text(strip=True)
-                if name and name not in actresses:
-                    actresses.append(name)
-
-        if not actresses:
-            pats = [
-                r'女优[：:]\s*(.+)',
-                r'出演[：:]\s*(.+)',
-                r'Actress[：:]\s*(.+)',
-            ]
-            for p in pats:
-                m = re.search(p, page_text)
-                if m:
-                    names = re.split(r'[,，、/\s]+', m.group(1).strip())
-                    names = [n.strip() for n in names if n.strip()]
-                    if names:
-                        actresses = names
-                        break
-
-        if actresses:
-            info['actresses'] = actresses
-
-        return info
-    except Exception as e:
-        jm_log('mv.detail', f'MissAV detail parse failed: {e}')
-        return {}
-
-
-def _search_javdb(query: str) -> dict:
-    url = JAVDB_SEARCH.format(query=quote(query))
-
-    _headers = {
-        'User-Agent': (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) '
-            'Chrome/125.0.0.0 Safari/537.36'
+def _headers():
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
         ),
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ja,zh-CN;q=0.9,en;q=0.8",
     }
 
+
+def search_video(query: str) -> dict:
+    """Search video info from jav321.com
+
+    Returns dict with keys: title, cover, date, actresses, studio, favorites
+    Returns empty dict if not found.
+    """
+    code = _normalize_code(query)
+    url = f"{JAV321_BASE}/video/{code}"
+
+    html = _fetch_page(url)
+    if html is None:
+        html = _search_page(query)
+
+    if html is None:
+        return {}
+
     try:
-        resp = _request(url, headers=_headers)
+        soup = BeautifulSoup(html, 'html.parser')
+        return _parse_page(soup)
     except Exception as e:
-        jm_log('mv.javdb', f'JavDB search request failed: {e}')
+        jm_log('mv.search', f'jav321 parse failed: {e}')
         return {}
 
-    if resp.status_code != 200:
-        jm_log('mv.javdb', f'JavDB search returned {resp.status_code}')
-        return {}
 
+def _fetch_page(url: str) -> str | None:
     try:
-        soup = BeautifulSoup(resp.content, 'html.parser')
-        info = {}
+        resp = httpx.get(url, headers=_headers(), timeout=_TIMEOUT, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.text
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return None
+        jm_log('mv.search', f'jav321 request failed: {e}')
+        return None
+    except Exception as e:
+        jm_log('mv.search', f'jav321 request failed: {e}')
+        return None
 
-        cards = soup.select('.movie-list .item, .grid .item, .card')
-        if not cards:
-            jm_log('mv.javdb', f'JavDB search found no cards for {query}')
-            return {}
 
-        first = cards[0]
-        link = first.select_one('a[href*="/v/"]')
-        if link and link.get('href'):
-            href = link['href']
-            detail_path = href if href.startswith('http') else f'https://javdb.com{href}'
+def _search_page(query: str) -> str | None:
+    url = f"{JAV321_BASE}/search"
+    try:
+        resp = httpx.post(url, data={'sn': query.strip()}, headers=_headers(), timeout=_TIMEOUT, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.text
+    except Exception as e:
+        jm_log('mv.search', f'jav321 search failed: {e}')
+        return None
 
-            img = first.select_one('img')
-            if img:
-                info['cover'] = img.get('src') or img.get('data-src') or ''
 
-            title_el = first.select_one('.title, .video-title, a[href*="/v/"]')
-            if title_el:
-                info['title'] = title_el.get_text(strip=True)
+def _normalize_code(query: str) -> str:
+    code = query.strip().lower()
+    code = code.replace('-', '').replace('_', '')
 
-            meta_text = first.get_text()
-            m = re.search(r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})', meta_text)
-            if m:
-                info['date'] = m.group(1)
-            m = re.search(r'(\d+)\s*min', meta_text, re.I)
-            if m:
-                info['duration'] = m.group(1) + ' min'
+    m = re.match(r'^(.+?)(\d+)$', code)
+    if m:
+        prefix, num = m.group(1), m.group(2)
+        num = num.zfill(5)
+        return prefix + num
 
-            try:
-                det_resp = _request(detail_path, headers=_headers)
-                if det_resp.status_code == 200:
-                    det = BeautifulSoup(det_resp.content, 'html.parser')
-                    det_text = det.get_text()
+    return code
 
-                    actresses = []
-                    for a in det.select('.cast a, .actors a, a[href*="/actors/"]'):
-                        name = a.get_text(strip=True)
-                        if name and name not in actresses:
-                            actresses.append(name)
-                    if actresses:
-                        info['actresses'] = actresses
 
-                    og_img = det.select_one('meta[property="og:image"]')
-                    if og_img and og_img.get('content'):
-                        info['cover'] = og_img['content']
+def _parse_page(soup: BeautifulSoup) -> dict:
+    heading = soup.select_one('.panel-heading h3')
+    if not heading:
+        return {}
 
-                    og_title = det.select_one('meta[property="og:title"]')
-                    if og_title and og_title.get('content'):
-                        info['title'] = og_title['content'].strip()
+    title = _extract_title(heading)
+    if not title:
+        return {}
 
-                    if 'date' not in info or not info['date']:
-                        m = re.search(r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})', det_text)
-                        if m:
-                            info['date'] = m.group(1)
-                    if 'duration' not in info or not info['duration']:
-                        m = re.search(r'(\d+)\s*minutes?', det_text, re.I)
-                        if m:
-                            info['duration'] = m.group(1) + ' min'
-                    m = re.search(r'Studio[：:]\s*(.+?)(?:\n|$)', det_text)
-                    if m:
-                        info['studio'] = m.group(1).strip()
-            except Exception as e:
-                jm_log('mv.javdb', f'JavDB detail page request failed: {e}')
+    info = {'title': title}
 
-        if 'actresses' not in info or not info.get('actresses'):
-            card_text = first.get_text()
-            m = re.search(r'(?:演員|女优|Actress)[：:]\s*(.+?)(?:\n|$)', card_text)
-            if m:
-                names = re.split(r'[,，、/\s]+', m.group(1).strip())
-                names = [n.strip() for n in names if n.strip()]
-                if names:
-                    info['actresses'] = names
+    cover = _extract_cover(soup)
+    if cover:
+        info['cover'] = cover
 
-        if info:
-            jm_log('mv.javdb', f'JavDB found data for {query}')
+    info_panel = soup.select_one('.panel-body .col-md-9')
+    if not info_panel:
         return info
-    except Exception as e:
-        jm_log('mv.javdb', f'JavDB search parse failed: {e}')
-        return {}
+
+    for b in info_panel.find_all('b'):
+        label = b.get_text(strip=True)
+        if label in ('メーカー', 'Maker', 'Studio', '發行商'):
+            a = b.find_next('a')
+            if a:
+                info['studio'] = a.get_text(strip=True)
+        elif label in ('収録時間', '播放時間', '播放時長', '時長', 'Play time'):
+            if b.next_sibling:
+                text = str(b.next_sibling).strip().lstrip(': \t')
+                info['duration'] = text
+        elif label in ('配信開始日', '發售日', '發行日期', '發行日', 'Release Date'):
+            if b.next_sibling:
+                text = str(b.next_sibling).strip().lstrip(': \t')
+                if re.search(r'\d{4}', text):
+                    info['date'] = text
+        elif label in ('お気に入り登録数', '收藏', '評分', '讚', '贊', 'Likes', 'Favorites'):
+            if b.next_sibling:
+                text = str(b.next_sibling).strip().lstrip(': \t')
+                m = re.search(r'\d+', text)
+                if m:
+                    info['favorites'] = m.group()
+
+    actresses = []
+    for a in info_panel.select('a[href^="/star/"]'):
+        name = a.get_text(strip=True)
+        if name and name not in actresses:
+            actresses.append(name)
+    if actresses:
+        info['actresses'] = actresses
+
+    return info
+
+
+def _extract_title(heading) -> str:
+    small = heading.find('small')
+    if small:
+        small.extract()
+    return heading.get_text(strip=True)
+
+
+def _extract_cover(soup) -> str:
+    poster = soup.select_one('div.col-md-3 div.col-md-12 img')
+    if poster and poster.get('src'):
+        src = poster['src'].strip()
+        if src:
+            return src if src.startswith('http') else f'https:{src}'
+
+    thumb = soup.select_one('.panel-body .col-md-3 img')
+    if thumb and thumb.get('src'):
+        src = thumb['src'].strip()
+        if src:
+            return src if src.startswith('http') else f'https:{src}'
+
+    return ''
