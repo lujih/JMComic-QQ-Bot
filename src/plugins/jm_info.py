@@ -105,12 +105,13 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     if not results:
         await jms_cmd.finish("❌ 未找到相关结果")
 
-    lines = [f"🔍 「{text}」搜索结果 (共{page.total}条):", ""]
+    total = getattr(page, 'total', len(results))
+    lines = [f"🔍 「{text}」搜索结果 (共{total}条):", ""]
     for aid, title in results:
         short_title = title if len(title) <= 50 else title[:47] + "..."
         lines.append(f"JM{aid}  {short_title}")
 
-    if page.total > len(results):
-        lines.append(f"\n... 还有 {page.total - len(results)} 条未显示")
+    if total > len(results):
+        lines.append(f"\n... 还有 {total - len(results)} 条未显示")
 
     await jms_cmd.finish("\n".join(lines))

@@ -57,8 +57,8 @@ pip install -e path/to/JMComic-Crawler-Python
 - 所有 jmcomic 调用必须经 `run_in_executor` + `wait_for(timeout)` 在 async 上下文中执行（NoneBot2 是 async event loop）
 - 并发控制：全局 `asyncio.Semaphore(1)` 串行化下载
 - `wait_for` 超时后底层线程无法取消（Python 线程语义），可能游离。已移除超时重试循环避免并发写
-- 回调进度：`asyncio.run_coroutine_threadsafe` 从 sync 线程发消息
-- `ProgressJmDownloader` 子类化 `JmDownloader`，覆盖 `after_album` 钩子在 PDF 生成前推送状态；`before_photo` 和 `after_photo` 已移除（Phase 2 精简），下载前一次性展示本子详情
+- 进度展示：下载前一次性展示本子详情（`album.py` 直接发送），不再通过下载器回调逐章推送
+- `ProgressJmDownloader` 子类化 `JmDownloader`，仅覆盖 `before_photo` 用于检查取消信号（`cancel_event.is_set()` 时跳过该章节），无进度推送逻辑
 
 ### jmcomic Feature 机制
 - 格式（PDF/ZIP/长图）通过 `Feature.export_*` 作为 `extra` 参数传入，不写在 `option.yml` plugin 段

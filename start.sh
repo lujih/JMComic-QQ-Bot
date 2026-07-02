@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+# 不使用 set -e：后台进程和循环并存时意外退出风险高，显式错误处理
 
 # 0. Convenience symlinks for the base image layout
 NAPCAT_DIR=/app/napcat
@@ -23,28 +23,24 @@ cat > "$NAPCAT_CONFIG/webui.json" << EOF
 }
 EOF
 
-# 2. Unpack NapCat Shell (if not yet done — base image skips this at build)
+# 2. NapCat Shell 已在 Dockerfile 构建时解压，如有缺失则运行时补充
 if [ ! -f "$NAPCAT_DIR/napcat.mjs" ]; then
-    echo "[start] Unpacking NapCat.Shell.zip..."
-    unzip -q /app/NapCat.Shell.zip -d /tmp/NapCat.Shell
-    cp -rf /tmp/NapCat.Shell/* "$NAPCAT_DIR/"
-    # Copy default configs for missing ones
-    if [ ! -f "$NAPCAT_CONFIG/napcat.json" ] && [ -d "/tmp/NapCat.Shell/config" ]; then
-        cp -rf /tmp/NapCat.Shell/config/* "$NAPCAT_CONFIG/"
-    fi
-    rm -rf /tmp/NapCat.Shell
+    echo "[start] NapCat Shell not found at build time, unpacking now..."
+    unzip -q /app/NapCat.Shell.zip -d /tmp/NapCat.Shell 2>/dev/null && \
+        cp -rf /tmp/NapCat.Shell/* "$NAPCAT_DIR/" && \
+        rm -rf /tmp/NapCat.Shell || echo "[start] WARNING: failed to unpack NapCat.Shell.zip"
 fi
 
 # 3. Write NapCat OneBot config — WS client → our NoneBot2
 echo "[start] Writing NapCat OneBot config..."
 cp /app/bot/config/onebot11.json "$NAPCAT_CONFIG/onebot11.json"
-# 注入 OneBot token（空值时替换为空字符串，避免残留占位符）
+# 注入 OneBot token（使用 json.dumps 安全写入，避免 token 含特殊字符破坏 JSON）
 python3 -c "
-import os, sys
+import os, json
 path = '$NAPCAT_CONFIG/onebot11.json'
-data = open(path).read()
-data = data.replace('\${ONEBOT_TOKEN}', os.environ.get('ONEBOT_TOKEN', ''))
-open(path, 'w').write(data)
+data = json.load(open(path, 'r'))
+data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN', '')
+json.dump(data, open(path, 'w'), ensure_ascii=False, indent=2)
 "
 chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || true
 
@@ -70,13 +66,13 @@ sync_onebot11_config() {
             target="$NAPCAT_CONFIG/onebot11_${qq}.json"
             if [ ! -f "$target" ]; then
                 cp /app/bot/config/onebot11.json "$target"
-                # 注入 OneBot token（空值时替换为空字符串，避免残留占位符）
+                # 注入 OneBot token
                 python3 -c "
-import os
+import os, json
 path = '$target'
-data = open(path).read()
-data = data.replace('\${ONEBOT_TOKEN}', os.environ.get('ONEBOT_TOKEN', ''))
-open(path, 'w').write(data)
+data = json.load(open(path, 'r'))
+data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN', '')
+json.dump(data, open(path, 'w'), ensure_ascii=False, indent=2)
 "
                 chown napcat:napcat "$target" 2>/dev/null || true
                 echo "[start] Synced onebot11 config for account $qq"
@@ -89,7 +85,15 @@ sync_onebot11_config &
 # 6. Start Xvfb (virtual display)
 echo "[start] Starting Xvfb..."
 Xvfb :1 -screen 0 1280x768x16 +extension GLX +render > /dev/null 2>&1 &
-sleep 1
+for i in 1 2 3 4 5; do
+    if pgrep -x Xvfb > /dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+if ! pgrep -x Xvfb > /dev/null 2>&1; then
+    echo "[start] WARNING: Xvfb may not have started"
+fi
 export DISPLAY=:1
 
 # 7. Start QQ + NapCat in background (auto-restart on crash)
@@ -133,6 +137,7 @@ python bot.py
 
 # 10. Cleanup on exit
 echo "[start] NoneBot2 exited, stopping..."
+kill %1 %2 2>/dev/null || true
 if [ -f /tmp/qq.pid ]; then
     kill $(cat /tmp/qq.pid) 2>/dev/null || true
 fi

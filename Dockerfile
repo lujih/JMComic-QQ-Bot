@@ -22,6 +22,14 @@ WORKDIR /app/bot
 # 清掉基镜像的 ENTRYPOINT ["bash", "entrypoint.sh"]，避免合并执行
 ENTRYPOINT []
 
+# 构建时解压 NapCat Shell，避免每次启动时解压
+RUN mkdir -p /app/napcat && \
+    unzip -q /app/NapCat.Shell.zip -d /tmp/napcat_shell && \
+    cp -rf /tmp/napcat_shell/* /app/napcat/ && \
+    (cp -rf /tmp/napcat_shell/config/* /app/napcat/config/ 2>/dev/null || true) && \
+    rm -f /app/NapCat.Shell.zip && \
+    rm -rf /tmp/napcat_shell
+
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 

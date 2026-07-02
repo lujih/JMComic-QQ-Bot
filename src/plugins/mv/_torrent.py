@@ -68,8 +68,9 @@ def _parse_page(html: str):
                 size = text
                 break
 
+        cells = row.find_all('td')
         digit_cells = []
-        for td in row.select('td.text-center'):
+        for td in cells[-3:]:
             txt = td.get_text(strip=True)
             if txt.isdigit():
                 digit_cells.append(int(txt))
@@ -92,8 +93,9 @@ def _has_next_page(html: str) -> bool:
     soup = BeautifulSoup(html, 'html.parser')
     pag = soup.find('ul', class_='pagination')
     if pag:
-        for a in pag.select('a[href]'):
-            txt = a.get_text(strip=True)
-            if txt == '›' or txt == '»' or 'next' in a.get('class', []):
+        lis = pag.find_all('li')
+        if len(lis) >= 2:
+            last_li = lis[-1]
+            if 'disabled' not in last_li.get('class', []):
                 return True
     return False

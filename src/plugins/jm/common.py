@@ -29,16 +29,16 @@ _TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _cleanup_stale_dirs():
-    dl = _DL_TMP
-    if not dl.exists():
-        return
     now = time.time()
-    for d in dl.iterdir():
-        if not d.is_dir():
+    for d in [_DL_TMP, _TMP_DIR]:
+        if not d.exists():
             continue
         try:
-            if now - d.stat().st_mtime > 1800:
-                shutil.rmtree(d, ignore_errors=True)
+            for entry in d.iterdir():
+                if not entry.is_dir():
+                    continue
+                if now - entry.stat().st_mtime > 1800:
+                    shutil.rmtree(entry, ignore_errors=True)
         except OSError as e:
             jm_log('common.cleanup', f'清理过期目录失败: {e}')
 

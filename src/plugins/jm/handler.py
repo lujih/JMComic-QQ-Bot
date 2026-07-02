@@ -100,7 +100,7 @@ async def _handle_random(bot: Bot, event: GroupMessageEvent):
     try:
         option = _get_option()
         async with option.new_jm_async_client() as cl:
-            page = await asyncio.wait_for(cl.month_ranking(1), timeout=60)
+            page = await asyncio.wait_for(cl.month_ranking(1), timeout=30)
     except asyncio.TimeoutError:
         await jm_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:

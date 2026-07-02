@@ -2,12 +2,11 @@ __pycache__
 *.pyc
 .git
 .gitignore
-README.md
 .env
 *.md
 *.log
 .vscode/
 .idea/
-__pycache__/
 data/
 .codegraph/
+.gitattributes

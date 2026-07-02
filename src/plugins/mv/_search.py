@@ -1,30 +1,20 @@
+import os
 import re
-import threading
 from urllib.parse import quote
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from jmcomic import jm_log
 
-MISSAV_SEARCH = "https://missav.ai/search/{query}"
+MISSAV_BASE = os.getenv("MISSAV_BASE_URL", "https://missav.ai")
+MISSAV_SEARCH = f"{MISSAV_BASE}/search/{{query}}"
 JAVDB_SEARCH = "https://javdb.com/search?q={query}&f=all"
-
-_session = None
-_session_lock = threading.Lock()
 _IMPERSONATE = "chrome124"
 
 
-def _get_session():
-    global _session
-    if _session is None:
-        with _session_lock:
-            if _session is None:
-                _session = requests.Session()
-    return _session
-
-
 def _request(url, timeout=20, headers=None):
-    return _get_session().get(url, impersonate=_IMPERSONATE, timeout=timeout, headers=headers)
+    with requests.Session() as session:
+        return session.get(url, impersonate=_IMPERSONATE, timeout=timeout, headers=headers)
 
 
 def _extract_card_link(card, img):

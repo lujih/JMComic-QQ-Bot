@@ -72,10 +72,11 @@ git push
 在 Space → **Settings** → **Repository Secrets** 添加：
 
 | 变量 | 说明 | 默认值 |
-|---|---|---|
+|---|---|---|---|
 | `ONEBOT_TOKEN` | NapCat ↔ NoneBot WS 认证 Token | 留空（不启用认证） |
 | `TARGET_GROUPS` | 每日推荐推送的目标群号 | 留空（不推送） |
 | `WEBUI_TOKEN` | NapCat WebUI 管理密码 | `jmcomic` |
+| `ACCOUNT` | 指定 QQ 账号自动登录（可选） | 留空（手动扫码） |
 
 或在 `.env` 文件中配置后随代码推送。
 
@@ -151,7 +152,7 @@ HF Spaces 免费版 48h 无活动会休眠，可选：
 | `HOST` / `PORT` | WS 服务器监听地址 |
 | `COMMAND_START` | 命令前缀（默认 `["/"]`） |
 | `ONEBOT_TOKEN` | WS 连接认证 Token |
-| `TARGET_GROUPS` | 每日推荐推送群号，逗号分隔 |
+| `TARGET_GROUPS` | 每日推荐推送群号，逗号分隔（留空则不推送） |
 
 ### `option.yml`（jmcomic 下载配置）
 

@@ -2,8 +2,6 @@ import os
 import sys
 from pathlib import Path
 
-os.environ.setdefault("ENVIRONMENT", "prod")
-
 import nonebot
 from nonebot.adapters.onebot.v11 import Adapter as OnebotV11Adapter
 
