@@ -1,5 +1,7 @@
 import re
+import base64
 
+import httpx
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 from jmcomic import jm_log
@@ -51,7 +53,16 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
 
     img_url = av_info.get('cover')
     if img_url:
-        info_lines.append(f"[CQ:image,file={img_url}]")
+        try:
+            resp = await run_sync(
+                httpx.get, img_url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"},
+                timeout=10,
+            )
+            b64 = base64.b64encode(resp.content).decode()
+            info_lines.append(f"[CQ:image,file=base64://{b64}]")
+        except Exception:
+            pass  # 封面下载失败不阻塞
 
     await mv_cmd.send("\n".join(info_lines))
 
@@ -82,7 +93,9 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             elif leechers >= seeders * 5 and seeders > 0:
                 warning = "  ⚠️低存活"
             lines.append(f"{i}. {size}  👍{seeders} 👎{leechers}{warning}")
-        lines.append(f"   {magnet}")
+            lines.append(f"   {magnet}")
+        else:
+            lines.append(f"{i}. {magnet}")
 
     if page > 1 or has_next:
         lines.append("")
