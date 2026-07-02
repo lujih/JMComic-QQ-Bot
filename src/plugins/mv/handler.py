@@ -12,6 +12,12 @@ from plugins.mv._search import search_video
 from plugins.mv._torrent import search as search_torrent
 
 
+def _clean_magnet(magnet: str) -> str:
+    """去掉 &tr= tracker 参数，保留 xt=/dn=，使磁链短而整洁"""
+    parts = magnet.split('&')
+    return '&'.join(p for p in parts if not p.startswith('tr='))
+
+
 @mv_cmd.handle()
 async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     text = msg.extract_plain_text().strip()
@@ -81,7 +87,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
 
     lines = []
     for i, r in enumerate(results[:5], 1):
-        magnet = r['magnet']
+        magnet = _clean_magnet(r['magnet'])
         size = r.get('size', '')
         seeders = r.get('seeders', 0)
         leechers = r.get('leechers', 0)
