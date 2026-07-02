@@ -9,8 +9,7 @@ mkdir -p "$NAPCAT_CONFIG"
 # 0a. Generate random WebUI token if not set
 if [ -z "${WEBUI_TOKEN}" ]; then
     WEBUI_TOKEN=$(openssl rand -hex 16)
-    true  # WebUI token 随机生成；需要时取消注释下一行以调试
-    # echo "[start] Generated random WebUI token: ${WEBUI_TOKEN}"
+    echo "[start] Generated random WebUI token: ${WEBUI_TOKEN}"
 fi
 
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
