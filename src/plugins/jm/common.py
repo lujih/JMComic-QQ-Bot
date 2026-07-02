@@ -8,6 +8,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from jmcomic import Feature, jm_log
+from plugins._common import run_sync
 
 COOLDOWN_SECONDS = 15
 
@@ -40,19 +41,7 @@ def _cleanup_stale_dirs():
                 if now - entry.stat().st_mtime > 1800:
                     shutil.rmtree(entry, ignore_errors=True)
         except OSError as e:
-            jm_log('common.cleanup', f'清理过期目录失败: {e}')
-
-
-async def _run_sync(func, *args, timeout=180):
-    loop = asyncio.get_running_loop()
-    return await asyncio.wait_for(
-        loop.run_in_executor(None, lambda: func(*args)),
-        timeout=timeout,
-    )
-
-
-# Public alias for cross-module use
-run_sync = _run_sync
+            jm_log('jm.common.cleanup', f'清理过期目录失败: {e}')
 
 
 def _parse_format_flags(text: str):

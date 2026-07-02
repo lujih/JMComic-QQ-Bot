@@ -30,8 +30,7 @@ RUN mkdir -p /app/napcat && \
     rm -f /app/NapCat.Shell.zip && \
     rm -rf /tmp/napcat_shell
 
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+RUN chmod +x /app/bot/start.sh
 
 ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
@@ -40,4 +39,4 @@ EXPOSE 7860 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
   CMD ps aux | grep -q "[p]ython.*bot.py"
 
-CMD ["bash", "/app/start.sh"]
+CMD ["bash", "/app/bot/start.sh"]

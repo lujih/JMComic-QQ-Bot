@@ -1,3 +1,4 @@
+import os
 import re
 from urllib.parse import quote
 
@@ -5,7 +6,7 @@ import httpx
 from bs4 import BeautifulSoup
 from jmcomic import jm_log
 
-SUKEBEI_BASE = "https://sukebei.nyaa.si"
+SUKEBEI_BASE = os.getenv("SUKEBEI_BASE_URL", "https://sukebei.nyaa.si")
 
 
 def search(query: str, page: int = 1):

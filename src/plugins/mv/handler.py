@@ -4,7 +4,7 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 from jmcomic import jm_log
 
-from plugins.jm.common import run_sync
+from plugins._common import run_sync
 from plugins.mv.cmd import mv_cmd
 from plugins.mv._search import search_video
 from plugins.mv._torrent import search as search_torrent
@@ -33,6 +33,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     if not av_info:
         await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的信息")
 
+    # 消息 1：元信息 + 封面
     info_lines = []
     display_title = av_info.get('title', text.upper())
     if len(display_title) > 80:
@@ -40,59 +41,57 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     info_lines.append(f"📹 {display_title}")
 
     if av_info.get('actresses'):
-        info_lines.append(f"🎬 女优: {' '.join(av_info['actresses'])}")
+        info_lines.append(f"🎬 女優: {' '.join(av_info['actresses'])}")
     if av_info.get('date'):
         info_lines.append(f"📅 日期: {av_info['date']}")
     if av_info.get('studio'):
         info_lines.append(f"🏢 制作商: {av_info['studio']}")
     if av_info.get('duration'):
         info_lines.append(f"⏱ 时长: {av_info['duration']}")
+
     img_url = av_info.get('cover')
     if img_url:
         info_lines.append(f"[CQ:image,file={img_url}]")
 
+    await mv_cmd.send("\n".join(info_lines))
+
+    # 消息 2：磁链汇总
     try:
         results, has_next = await run_sync(search_torrent, text, page, timeout=30)
     except Exception as e:
         jm_log('mv.torrent', f"sukebei 搜索失败: {e}")
-        info_lines.append("")
-        info_lines.append("❌ 磁力搜索失败，请稍后再试")
-        await mv_cmd.finish("\n".join(info_lines))
+        await mv_cmd.finish("❌ 磁力搜索失败，请稍后再试")
 
     if not results:
-        info_lines.append("")
-        info_lines.append(f"❌ 未找到 {text} 的磁力链接")
-        await mv_cmd.finish("\n".join(info_lines))
+        results = av_info.get('magnets')
+
+    if not results:
+        await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的磁力链接")
 
     lines = []
     for i, r in enumerate(results[:5], 1):
-        name = r['name']
-        if len(name) > 90:
-            name = name[:87] + "…"
-
-        seeders = r['seeders']
-        leechers = r['leechers']
-
-        warning = ""
-        if seeders == 0:
-            warning = "  ⚠️死種"
-        elif leechers >= seeders * 5 and seeders > 0:
-            warning = "  ⚠️低存活"
-
         magnet = r['magnet']
+        size = r.get('size', '')
+        seeders = r.get('seeders', 0)
+        leechers = r.get('leechers', 0)
 
-        lines.append(f"[{i}] {name}")
-        lines.append(f"    {r['size']}  👍{seeders} 👎{leechers}{warning}")
-        lines.append(f"    {magnet}")
+        if size:
+            warning = ""
+            if seeders == 0:
+                warning = "  ⚠️死種"
+            elif leechers >= seeders * 5 and seeders > 0:
+                warning = "  ⚠️低存活"
+            lines.append(f"{i}. {size}  👍{seeders} 👎{leechers}{warning}")
+        lines.append(f"   {magnet}")
 
-    lines.append("")
-    nav_parts = [f"第{page}页"]
-    if page > 1:
-        nav_parts.append(f"/mv {text} --page {page - 1} ←")
-    if has_next:
-        nav_parts.append(f"/mv {text} --page {page + 1} →")
-    lines.append("——")
-    lines.append("  ".join(nav_parts))
+    if page > 1 or has_next:
+        lines.append("")
+        nav_parts = [f"第{page}页"]
+        if page > 1:
+            nav_parts.append(f"/mv {text} --page {page - 1} ←")
+        if has_next:
+            nav_parts.append(f"/mv {text} --page {page + 1} →")
+        lines.append("——")
+        lines.append("  ".join(nav_parts))
 
-    full_lines = info_lines + [""] + lines if info_lines else lines
-    await mv_cmd.finish("\n".join(full_lines))
+    await mv_cmd.finish("\n".join(lines))

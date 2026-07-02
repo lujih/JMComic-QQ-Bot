@@ -1,10 +1,12 @@
+import os
 import re
 
 import httpx
+from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from jmcomic import jm_log
 
-JAV321_BASE = "https://www.jav321.com"
+JAV321_BASE = os.getenv("JAV321_BASE_URL", "https://www.jav321.com")
 _TIMEOUT = 20
 
 
@@ -72,7 +74,7 @@ def _search_page(query: str) -> str | None:
 
 def _normalize_code(query: str) -> str:
     code = query.strip().lower()
-    code = code.replace('-', '').replace('_', '')
+    code = code.replace('-', '').replace('_', '').replace(' ', '')
 
     m = re.match(r'^(.+?)(\d+)$', code)
     if m:
@@ -132,6 +134,14 @@ def _parse_page(soup: BeautifulSoup) -> dict:
     if actresses:
         info['actresses'] = actresses
 
+    magnets = []
+    for a in soup.select('a[href^="magnet:"]'):
+        href = a['href']
+        if href not in [m['magnet'] for m in magnets]:
+            magnets.append({'magnet': href})
+    if magnets:
+        info['magnets'] = magnets
+
     return info
 
 
@@ -142,17 +152,29 @@ def _extract_title(heading) -> str:
     return heading.get_text(strip=True)
 
 
+def _resolve_url(src: str) -> str:
+    if not src:
+        return ''
+    if src.startswith('http://') or src.startswith('https://'):
+        url = src
+    elif src.startswith('//'):
+        url = f'https:{src}'
+    else:
+        url = urljoin('https://', src)
+    return re.sub(r'(?<!:)//', '/', url)
+
+
 def _extract_cover(soup) -> str:
     poster = soup.select_one('div.col-md-3 div.col-md-12 img')
     if poster and poster.get('src'):
-        src = poster['src'].strip()
-        if src:
-            return src if src.startswith('http') else f'https:{src}'
+        url = _resolve_url(poster['src'].strip())
+        if url:
+            return url
 
     thumb = soup.select_one('.panel-body .col-md-3 img')
     if thumb and thumb.get('src'):
-        src = thumb['src'].strip()
-        if src:
-            return src if src.startswith('http') else f'https:{src}'
+        url = _resolve_url(thumb['src'].strip())
+        if url:
+            return url
 
     return ''

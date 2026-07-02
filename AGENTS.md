@@ -11,7 +11,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
                                      ├── /jm random → month_ranking → random.choice
                                      ├── /jmv      → get_album_detail
                                      ├── /jms      → search_site
-                                     ├── /mv       → MissAV 标题搜索 + Sukebei 磁力链
+                                     ├── /mv       → jav321 标题搜索 + Sukebei 磁力链
                                       └── 每日 9:00  → APScheduler → month_ranking → 群推送
 ```
 
@@ -25,7 +25,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `.env` | `DRIVER=~fastapi`, `HOST=0.0.0.0`, `PORT=8080`, `COMMAND_START=["/"]`, `TARGET_GROUPS` |
 | `config/onebot11.json` | NapCat WS 客户端 → `ws://127.0.0.1:8080/onebot/v11/ws` |
 | `src/plugins/jm/` | `/jm` 命令包 — `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(二级上传fallback), `progress.py`(进度推送), `common.py`(公共工具) |
-| `src/plugins/mv/` | `/mv` 命令包 — `handler.py`(路由), `_search.py`(MissAV标题), `_torrent.py`(Sukebei磁力) |
+| `src/plugins/mv/` | `/mv` 命令包 — `handler.py`(路由), `_search.py`(jav321搜索), `_torrent.py`(Sukebei磁力) |
 | `src/plugins/jm_info.py` | `/jmv` 详情 + `/jms` 搜索 |
 | `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`） |
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
@@ -97,7 +97,7 @@ pip install -e path/to/JMComic-Crawler-Python
 - 下载前一次性展示本子详情（名称/作者/章节/页数/标签），不再发逐章进度
 - 下载超时直接结束（无自动重试，避免线程竞态），jmcomic 内部已有 3 次重试
 - 30 分钟短时缓存（`/tmp/jm/{id}.ext`），定时每 30 分钟清理过期缓存和残留下载目录（`/tmp/jm_dl/`）
-- 下载后自动清理原始图片（`/tmp/jm_dl/A{id}/` 及 `P{id}/`）
+- 下载后自动清理原始图片（`/tmp/jm_dl/{id}/`）
 - 每次 `/jm` 命令开头自动扫描 `/tmp/jm_dl/`，删除超过 30 分钟的残留目录（替代原 APScheduler 定时清理）
 
 

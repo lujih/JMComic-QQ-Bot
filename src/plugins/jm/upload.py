@@ -78,7 +78,7 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
             success = True
             return
         except Exception as e:
-            jm_log('upload.tier1', f'upload_group_file 失败，降级到流式上传: {e}')
+            jm_log('jm.upload.tier1', f'upload_group_file 失败，降级到流式上传: {e}')
 
         # Tier 2 — upload_file_stream → upload_group_file
         try:
@@ -87,13 +87,12 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
             return
         except Exception as e:
             _clear_cooldown(cooldown_key)
-            jm_log('upload.tier2', f'流式上传失败: {e}')
+            jm_log('jm.upload.tier2', f'流式上传失败: {e}')
             await jm_cmd.finish(f"❌ {fmt_name} 上传失败（已尝试 2 种方式）")
     finally:
-        for prefix in ('A', 'P'):
-            d = _DL_TMP / f"{prefix}{id_str}"
-            if d.exists():
-                shutil.rmtree(d, ignore_errors=True)
+        d = _DL_TMP / id_str
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
 
         if not success:
             file_path.unlink(missing_ok=True)

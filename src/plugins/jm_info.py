@@ -41,7 +41,7 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     except RequestRetryAllFailException:
         await jmv_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
-        jm_log('jm_info', f'查询详情失败: {e}')
+        jm_log('jm.info', f'查询详情失败: {e}')
         await jmv_cmd.finish("❌ 查询失败")
 
     tags_str = "、".join(album.tags) if album.tags else "无"
@@ -98,7 +98,7 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     except RequestRetryAllFailException:
         await jms_cmd.finish("❌ 搜索失败，API 暂时不可达，请稍后再试")
     except Exception as e:
-        jm_log('jm_info', f'搜索失败: {e}')
+        jm_log('jm.info', f'搜索失败: {e}')
         await jms_cmd.finish("❌ 搜索失败")
 
     results = list(itertools.islice(page, 10))

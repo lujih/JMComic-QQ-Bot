@@ -26,7 +26,8 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     try:
         text, fmt = _parse_format_flags(text)
     except ValueError as e:
-        await jm_cmd.finish(f"❌ {e}")
+        jm_log('jm.handler', f'格式解析错误: {e}')
+        await jm_cmd.finish("❌ 格式错误，请检查参数")
 
     if text == "help":
         await jm_cmd.finish(HELP_TEXT)
@@ -73,6 +74,10 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
 
 async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
     time_param = {"周": "week", "月": "month", "日": "day"}.get(period, "week")
+    cooldown_key = f"{event.user_id}:rank:{time_param}"
+    remaining = _check_cooldown(cooldown_key)
+    if remaining:
+        await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
 
     try:
         option = _get_option()
@@ -97,6 +102,11 @@ async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
 
 
 async def _handle_random(bot: Bot, event: GroupMessageEvent):
+    cooldown_key = f"{event.user_id}:random"
+    remaining = _check_cooldown(cooldown_key)
+    if remaining:
+        await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+
     try:
         option = _get_option()
         async with option.new_jm_async_client() as cl:

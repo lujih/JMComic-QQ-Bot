@@ -38,9 +38,11 @@ cp /app/bot/config/onebot11.json "$NAPCAT_CONFIG/onebot11.json"
 python3 -c "
 import os, json
 path = '$NAPCAT_CONFIG/onebot11.json'
-data = json.load(open(path, 'r'))
+with open(path, 'r') as f:
+    data = json.load(f)
 data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN', '')
-json.dump(data, open(path, 'w'), ensure_ascii=False, indent=2)
+with open(path, 'w') as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
 "
 chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || true
 
@@ -70,9 +72,11 @@ sync_onebot11_config() {
                 python3 -c "
 import os, json
 path = '$target'
-data = json.load(open(path, 'r'))
+with open(path, 'r') as f:
+    data = json.load(f)
 data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN', '')
-json.dump(data, open(path, 'w'), ensure_ascii=False, indent=2)
+with open(path, 'w') as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
 "
                 chown napcat:napcat "$target" 2>/dev/null || true
                 echo "[start] Synced onebot11 config for account $qq"
@@ -137,7 +141,7 @@ python bot.py
 
 # 10. Cleanup on exit
 echo "[start] NoneBot2 exited, stopping..."
-kill %1 %2 2>/dev/null || true
+kill $(jobs -p) 2>/dev/null || true
 if [ -f /tmp/qq.pid ]; then
     kill $(cat /tmp/qq.pid) 2>/dev/null || true
 fi
