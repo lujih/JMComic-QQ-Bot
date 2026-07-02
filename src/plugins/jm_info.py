@@ -8,9 +8,9 @@ from nonebot.params import CommandArg
 from nonebot.rule import is_type
 
 from jmcomic import jm_log
+from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFailException
 
 from jm_option import get_option as _get_option
-from plugins.jm.common import run_sync
 
 __plugin_name__ = "jm_info"
 __plugin_usage__ = "/jmv <ID> — 查看本子详情\n/jms <关键字> — 搜索本子"
@@ -32,25 +32,51 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
 
     try:
         option = _get_option()
-        client = option.build_jm_client()
-        album = await run_sync(client.get_album_detail, album_id, timeout=60)
+        async with option.new_jm_async_client() as cl:
+            album = await asyncio.wait_for(cl.get_album_detail(album_id), timeout=60)
     except asyncio.TimeoutError:
         await jmv_cmd.finish("❌ 查询超时，请稍后再试")
+    except MissingAlbumPhotoException:
+        await jmv_cmd.finish("❌ 本子不存在，请检查 ID")
+    except RequestRetryAllFailException:
+        await jmv_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         jm_log('jm_info', f'查询详情失败: {e}')
         await jmv_cmd.finish("❌ 查询失败")
 
     tags_str = "、".join(album.tags) if album.tags else "无"
     lines = [
-        f"📖 {album.name}",
+        f"📖 {album.oname}",
         f"🆔 JM{album.id}",
-        f"✍️ 作者: {album.author}",
+        f"✍️ 作者: {'、'.join(album.authors) if album.authors else 'N/A'}",
         f"📄 章节数: {len(album)}",
-        f"🖼️ 总页数: {album.page_count}",
-        f"🏷️ 标签: {tags_str}",
+        f"🖼️ 总页数: {album.page_count or '?'}",
     ]
+
+    if album.pub_date and album.pub_date != '0':
+        lines.append(f"📅 发布日期: {album.pub_date}")
+    if album.update_date and album.update_date != '0':
+        lines.append(f"📅 更新日期: {album.update_date}")
+    if album.views:
+        lines.append(f"👀 观看: {album.views}")
+    if album.likes:
+        lines.append(f"❤️ 点赞: {album.likes}")
     if album.comment_count:
         lines.append(f"💬 评论: {album.comment_count}")
+
+    lines.append(f"🏷️ 标签: {tags_str}")
+
+    if album.actors:
+        lines.append(f"🎭 人物: {'、'.join(album.actors)}")
+    if album.works:
+        lines.append(f"📚 作品: {'、'.join(album.works)}")
+
+    if len(album) > 0:
+        chapter_lines = []
+        for pid, pindex, pname in album.episode_list:
+            chapter_lines.append(f"    第{pindex}話 {pname} (id: {pid})")
+        lines.append(f"\n📑 章节 ({len(album)}):")
+        lines.extend(chapter_lines)
 
     await jmv_cmd.finish("\n".join(lines))
 
@@ -65,10 +91,12 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
 
     try:
         option = _get_option()
-        client = option.build_jm_client()
-        page = await run_sync(client.search_site, text, 1, timeout=60)
+        async with option.new_jm_async_client() as cl:
+            page = await asyncio.wait_for(cl.search_site(text, 1), timeout=60)
     except asyncio.TimeoutError:
         await jms_cmd.finish("❌ 搜索超时，请稍后再试")
+    except RequestRetryAllFailException:
+        await jms_cmd.finish("❌ 搜索失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         jm_log('jm_info', f'搜索失败: {e}')
         await jms_cmd.finish("❌ 搜索失败")

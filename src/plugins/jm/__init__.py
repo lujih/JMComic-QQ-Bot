@@ -1,4 +1,4 @@
-from .handler import jm_cmd, handle_jm
+from . import handler
 
 __plugin_name__ = "jm"
 __plugin_usage__ = (

@@ -1,4 +1,4 @@
-from .handler import mv_cmd, handle_mv
+from . import handler
 
 __plugin_name__ = "mv"
 __plugin_usage__ = (

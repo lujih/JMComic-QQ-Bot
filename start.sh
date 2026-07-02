@@ -98,9 +98,9 @@ cd "$NAPCAT_DIR"
 start_qq() {
     while true; do
         if [ -n "${ACCOUNT}" ]; then
-            gosu napcat /opt/QQ/qq --no-sandbox -q "$ACCOUNT" &
+            gosu napcat /opt/QQ/qq --no-sandbox -q "$ACCOUNT" > /dev/null 2>&1 &
         else
-            gosu napcat /opt/QQ/qq --no-sandbox &
+            gosu napcat /opt/QQ/qq --no-sandbox > /dev/null 2>&1 &
         fi
         pid=$!
         echo $pid > /tmp/qq.pid

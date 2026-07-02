@@ -59,7 +59,8 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
     success = False
     try:
         try:
-            file_path.stat()
+            if not file_path.exists():
+                raise FileNotFoundError
         except FileNotFoundError:
             _clear_cooldown(cooldown_key)
             await jm_cmd.finish(f"❌ {fmt_name} 上传失败（文件已被清理），请重新下载")

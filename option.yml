@@ -4,6 +4,8 @@ dir_rule:
 
 client:
   impl: api
+  async_impl: async_api
+  cache: level_option
   retry_times: 3
   postman:
     meta_data:

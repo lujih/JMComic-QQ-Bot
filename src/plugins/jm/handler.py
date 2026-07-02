@@ -1,17 +1,17 @@
 import re
+import asyncio
 import random as _random
 
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 
+from jmcomic import jm_log
 from jm_option import get_option as _get_option
 from plugins.jm.cmd import jm_cmd
-from jmcomic import jm_log
 
 from plugins.jm.common import (
     _parse_format_flags,
     _check_cooldown,
-    _run_sync,
     _DEFAULT_FMT,
     HELP_TEXT,
 )
@@ -76,9 +76,11 @@ async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
 
     try:
         option = _get_option()
-        client = option.build_jm_client()
-        rank_fn = getattr(client, f"{time_param}_ranking")
-        page = await _run_sync(rank_fn, 1)
+        async with option.new_jm_async_client() as cl:
+            rank_fn = getattr(cl, f"{time_param}_ranking")
+            page = await asyncio.wait_for(rank_fn(1), timeout=60)
+    except asyncio.TimeoutError:
+        await jm_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:
         jm_log('jm.handler', f'获取排行榜失败: {e}')
         await jm_cmd.finish("❌ 获取排行榜失败")
@@ -97,8 +99,10 @@ async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
 async def _handle_random(bot: Bot, event: GroupMessageEvent):
     try:
         option = _get_option()
-        client = option.build_jm_client()
-        page = await _run_sync(client.month_ranking, 1)
+        async with option.new_jm_async_client() as cl:
+            page = await asyncio.wait_for(cl.month_ranking(1), timeout=60)
+    except asyncio.TimeoutError:
+        await jm_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:
         jm_log('jm.handler', f'获取推荐失败: {e}')
         await jm_cmd.finish("❌ 获取推荐失败")

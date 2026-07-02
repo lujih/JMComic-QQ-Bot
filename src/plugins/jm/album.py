@@ -4,12 +4,13 @@ import threading
 import asyncio
 
 from jmcomic import jm_log
+from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFailException
 
 from jm_option import get_option as _get_option
 from plugins.jm.cmd import jm_cmd
 from plugins.jm.common import (
     _cleanup_stale_dirs,
-    _run_sync,
+    run_sync,
     _semaphore,
     _is_cache_valid,
     _make_out_path,
@@ -34,9 +35,18 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
     option = _get_option()
-    client = option.build_jm_client()
     try:
-        album = await _run_sync(client.get_album_detail, album_id)
+        async with option.new_jm_async_client() as cl:
+            album = await asyncio.wait_for(cl.get_album_detail(album_id), timeout=60)
+    except asyncio.TimeoutError:
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 查询超时，请稍后再试")
+    except MissingAlbumPhotoException:
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 本子不存在，请检查 ID")
+    except RequestRetryAllFailException:
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)
         jm_log('album.detail', f'查询本子详情失败: {e}')
@@ -45,7 +55,7 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
     tags_str = f"\n🏷️ {'、'.join(album.tags[:5])}" if album.tags else ""
     await jm_cmd.send(
         f"📖 {album.name}\n"
-        f"🆔 JM{album.id} | ✍️ {album.author} | 📄 {len(album)}章 🖼️ {album.page_count}页"
+        f"🆔 JM{album.id} | ✍️ {album.author} | 📄 {len(album)}章 🖼️ {album.page_count or '?'}页"
         f"{tags_str}"
     )
 
@@ -55,7 +65,8 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
 
     out_path.unlink(missing_ok=True)
 
-    extra = feature_cls(**{f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR)}, filename_rule='Aid')
+    kw = {f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR)}
+    extra = feature_cls(**kw, filename_rule='Aid')
 
     cancel_event = threading.Event()
 
@@ -68,7 +79,7 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
 
     async with _semaphore:
         try:
-            await _run_sync(_dl, timeout=300)
+            await run_sync(_dl, timeout=300)
         except asyncio.TimeoutError:
             cancel_event.set()
             await asyncio.sleep(3)

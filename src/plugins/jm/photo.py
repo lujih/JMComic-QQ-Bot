@@ -4,12 +4,13 @@ import threading
 import asyncio
 
 from jmcomic import Feature, jm_log
+from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFailException
 
 from jm_option import get_option as _get_option
 from plugins.jm.cmd import jm_cmd
 from plugins.jm.common import (
     _cleanup_stale_dirs,
-    _run_sync,
+    run_sync,
     _semaphore,
     _is_cache_valid,
     _make_out_path,
@@ -30,9 +31,18 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
         await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
 
     option = _get_option()
-    client = option.build_jm_client()
     try:
-        photo = await _run_sync(client.get_photo_detail, photo_id)
+        async with option.new_jm_async_client() as cl:
+            photo = await asyncio.wait_for(cl.get_photo_detail(photo_id), timeout=60)
+    except asyncio.TimeoutError:
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 查询超时，请稍后再试")
+    except MissingAlbumPhotoException:
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 章节不存在，请检查 ID")
+    except RequestRetryAllFailException:
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)
         jm_log('photo.detail', f'查询单章详情失败: {e}')
@@ -62,7 +72,7 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
 
     async with _semaphore:
         try:
-            await _run_sync(_dl, timeout=120)
+            await run_sync(_dl, timeout=120)
         except asyncio.TimeoutError:
             cancel_event.set()
             await asyncio.sleep(3)

@@ -21,17 +21,6 @@ def _parse_target_groups() -> list[int]:
     return [int(g.strip()) for g in raw.split(",") if g.strip().isdigit()]
 
 
-def _fetch_recommendation():
-    option = get_option()
-    client = option.build_jm_client()
-    page = client.month_ranking(1)
-    results = list(page)
-    if not results:
-        return None
-    aid, title = random.choice(results)
-    return aid, title
-
-
 @scheduler.scheduled_job("cron", hour="9", minute="0", id="daily_recommend")
 async def daily_recommend():
     groups = _parse_target_groups()
@@ -39,17 +28,15 @@ async def daily_recommend():
         jm_log("scheduler.info", "每日推荐：跳过推送（TARGET_GROUPS 未配置）")
         return
 
-    loop = asyncio.get_running_loop()
-
     try:
-        result = await asyncio.wait_for(
-            loop.run_in_executor(None, _fetch_recommendation),
-            timeout=30,
-        )
-        if result is None:
+        option = get_option()
+        async with option.new_jm_async_client() as cl:
+            page = await asyncio.wait_for(cl.month_ranking(1), timeout=30)
+        results = list(page)
+        if not results:
             jm_log("scheduler.info", "每日推荐：排行榜为空")
             return
-        aid, title = result
+        aid, title = random.choice(results)
     except asyncio.TimeoutError:
         jm_log("scheduler.error", "每日推荐：获取排行榜超时")
         return
