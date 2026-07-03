@@ -48,7 +48,11 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         if page < 1:
             page = 1
 
-    av_info = await run_sync(search_video, text, timeout=30)
+    try:
+        av_info = await run_sync(search_video, text, timeout=30)
+    except Exception as e:
+        jm_log('jm.mv.search', f'视频搜索异常', e)
+        await mv_cmd.finish(f"❌ 搜索 {text.upper()} 时出现异常，请稍后再试")
     if not av_info:
         await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的信息")
 
@@ -73,7 +77,8 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
                 f.write(resp.content)
             await mv_cmd.send(Message(f"[CQ:image,file=file://{cover_path}]"))
             asyncio.create_task(_delayed_rm(cover_path))
-        except Exception:
+        except Exception as e:
+            jm_log('jm.mv.cover', f'封面下载失败', e)
             await mv_cmd.send("❌ 封面下载失败")
     else:
         await mv_cmd.send("❌ 无封面图")
@@ -100,7 +105,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     try:
         results, has_next = await run_sync(search_torrent, text, page, timeout=30)
     except Exception as e:
-        jm_log('jm.mv.torrent', f"sukebei 搜索失败: {e}")
+        jm_log('jm.mv.torrent', 'sukebei 搜索失败', e)
         await mv_cmd.finish("❌ 磁力搜索失败，请稍后再试")
 
     if not results:

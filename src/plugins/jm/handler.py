@@ -26,7 +26,7 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     try:
         text, fmt = _parse_format_flags(text)
     except ValueError as e:
-        jm_log('jm.handler', f'格式解析错误: {e}')
+        jm_log('jm.handler', '格式解析错误', e)
         await jm_cmd.finish("❌ 格式错误，请检查参数")
 
     if text == "help":
@@ -87,7 +87,7 @@ async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
     except asyncio.TimeoutError:
         await jm_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:
-        jm_log('jm.handler', f'获取排行榜失败: {e}')
+        jm_log('jm.handler', '获取排行榜失败', e)
         await jm_cmd.finish("❌ 获取排行榜失败")
 
     period_cn = {"week": "周", "month": "月", "day": "日"}[time_param]
@@ -114,7 +114,7 @@ async def _handle_random(bot: Bot, event: GroupMessageEvent):
     except asyncio.TimeoutError:
         await jm_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:
-        jm_log('jm.handler', f'获取推荐失败: {e}')
+        jm_log('jm.handler', '获取推荐失败', e)
         await jm_cmd.finish("❌ 获取推荐失败")
 
     results = list(page)

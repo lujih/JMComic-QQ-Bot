@@ -22,7 +22,7 @@ from plugins.jm.upload import _upload_and_cleanup
 
 
 async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
-    _cleanup_stale_dirs()
+    await run_sync(_cleanup_stale_dirs)
     pdf_path = _make_out_path(photo_id, 'pdf')
 
     usage = shutil.disk_usage(tempfile.gettempdir())
@@ -45,7 +45,7 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
         await jm_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)
-        jm_log('jm.photo.detail', f'查询单章详情失败: {e}')
+        jm_log('jm.photo.detail', '查询单章详情失败', e)
         await jm_cmd.finish("❌ 查询失败")
 
     await jm_cmd.send(
@@ -80,7 +80,7 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
             await jm_cmd.finish("❌ 下载超时，请稍后再试")
         except Exception as e:
             cancel_event.set()
-            jm_log('jm.photo.download', f'下载章节 {photo_id} 失败: {e}')
+            jm_log('jm.photo.download', f'下载章节 {photo_id} 失败', e)
             _clear_cooldown(cooldown_key)
             await jm_cmd.finish("❌ 下载失败，请稍后再试")
 

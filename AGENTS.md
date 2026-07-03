@@ -25,7 +25,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `.env` | `DRIVER=~fastapi`, `HOST=0.0.0.0`, `PORT=8080`, `COMMAND_START=["/"]`, `TARGET_GROUPS` |
 | `config/onebot11.json` | NapCat WS 客户端 → `ws://127.0.0.1:8080/onebot/v11/ws` |
 | `src/plugins/jm/` | `/jm` 命令包 — `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(二级上传fallback), `progress.py`(进度推送), `common.py`(公共工具) |
-| `src/plugins/mv/` | `/mv` 命令包 — `handler.py`(路由), `_search.py`(jav321搜索), `_torrent.py`(Sukebei磁力) |
+| `src/plugins/mv/` | `/mv` 命令包 — `handler.py`(路由), `_search.py`(三源合并: MissAV+JavDB+jav321), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
 | `src/plugins/jm_info.py` | `/jmv` 详情 + `/jms` 搜索 |
 | `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`） |
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
@@ -55,7 +55,7 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### jmcomic 同步 API 阻塞防护
 - 所有 jmcomic 调用必须经 `run_in_executor` + `wait_for(timeout)` 在 async 上下文中执行（NoneBot2 是 async event loop）
-- 并发控制：全局 `asyncio.Semaphore(1)` 串行化下载
+- 并发控制：全局 `asyncio.Semaphore(3)` 控制并发下载数
 - `wait_for` 超时后底层线程无法取消（Python 线程语义），可能游离。已移除超时重试循环避免并发写
 - 进度展示：下载前一次性展示本子详情（`album.py` 直接发送），不再通过下载器回调逐章推送
 - `ProgressJmDownloader` 子类化 `JmDownloader`，仅覆盖 `before_photo` 用于检查取消信号（`cancel_event.is_set()` 时跳过该章节），无进度推送逻辑
@@ -88,12 +88,12 @@ pip install -e path/to/JMComic-Crawler-Python
 | `/jm help` | 查看全部命令 | `/jm help` |
 | `/jmv <ID>` | 查看本子详情 | `/jmv 438516` |
 | `/jms <关键词>` | 搜索本子 | `/jms 无修正` |
-| `/mv <番号>` | 搜索番号返回磁力链接 | `/mv SSNI-123` |
+| `/mv <番号>` | 搜索番号（三源合并: MissAV→JavDB→jav321）返回磁力链接 | `/mv SSNI-123` |
 | `/mv <番号> --page N` | 翻页 | `/mv SSNI-123 --page 2` |
 | 每日早 9:00 | 自动推送随机推荐 | 需 `.env` 配置 `TARGET_GROUPS` |
 
 ### 限制与行为
-- 每人每群 60 秒冷却（仅下载，rank/random/help 无冷却）
+- 每人每 album 15 秒冷却（仅下载，rank/random/help 无冷却），key = `f"{user_id}:{album_id}"`
 - 下载前一次性展示本子详情（名称/作者/章节/页数/标签），不再发逐章进度
 - 下载超时直接结束（无自动重试，避免线程竞态），jmcomic 内部已有 3 次重试
 - 30 分钟短时缓存（`/tmp/jm/{id}.ext`），定时每 30 分钟清理过期缓存和残留下载目录（`/tmp/jm_dl/`）

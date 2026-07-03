@@ -33,12 +33,13 @@ def search_missav(code: str) -> dict:
             network_idle=True,
         )
     except Exception as e:
-        jm_log('jm.mv.missav', f"MissAV 请求失败: {e}")
+        jm_log('jm.mv.missav', 'MissAV 请求失败', e)
         return {}
 
     info = {}
 
-    # Title: og:title > h1
+    try:
+        # Title: og:title > h1
     og = doc.css('meta[property="og:title"]')
     if og:
         info['title'] = og[0].attrib.get('content', '').strip()
@@ -125,5 +126,7 @@ def search_missav(code: str) -> dict:
                 actresses.append(name)
     if actresses:
         info['actresses'] = actresses
+    except Exception as e:
+        jm_log('jm.mv.missav', 'MissAV 解析失败', e)
 
     return info

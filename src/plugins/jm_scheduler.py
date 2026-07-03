@@ -59,7 +59,7 @@ async def daily_recommend():
         try:
             await bot.send_msg(message_type="group", group_id=gid, message=text)
         except Exception as e:
-            jm_log("jm.scheduler.error", f"每日推荐：发送到群 {gid} 失败 — {e}")
+            jm_log("jm.scheduler.error", f"每日推荐：发送到群 {gid} 失败", e)
 
 
 

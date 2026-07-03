@@ -33,12 +33,13 @@ def search_javdb(code: str) -> dict:
             network_idle=True,
         )
     except Exception as e:
-        jm_log('jm.mv.javdb', f"JavDB 请求失败: {e}")
+        jm_log('jm.mv.javdb', 'JavDB 请求失败', e)
         return {}
 
     info = {}
 
-    # Title: og:title > h1 > title tag
+    try:
+        # Title: og:title > h1 > title tag
     og = doc.css('meta[property="og:title"]')
     if og:
         info['title'] = og[0].attrib.get('content', '').strip()
@@ -142,5 +143,7 @@ def search_javdb(code: str) -> dict:
                 actresses.append(name)
     if actresses:
         info['actresses'] = actresses
+    except Exception as e:
+        jm_log('jm.mv.javdb', 'JavDB 解析失败', e)
 
     return info

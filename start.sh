@@ -78,7 +78,7 @@ data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN',
 with open(path, 'w') as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 "
-                chown napcat:napcat "$target" 2>/dev/null || true
+                chown napcat:napcat "$target" 2>/dev/null || echo "[start] WARNING: chown for onebot11 config failed" >&2
                 echo "[start] Synced onebot11 config for account $qq"
             fi
         done

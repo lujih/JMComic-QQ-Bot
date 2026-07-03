@@ -17,7 +17,7 @@ def search(query: str, page: int = 1):
         resp.raise_for_status()
         html = resp.text
     except Exception as e:
-        jm_log('jm.mv.torrent', f"sukebei 请求失败: {e}")
+        jm_log('jm.mv.torrent', 'sukebei 请求失败', e)
         return [], False
 
     doc = Selector(html)

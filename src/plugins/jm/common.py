@@ -41,7 +41,7 @@ def _cleanup_stale_dirs():
                 if now - entry.stat().st_mtime > 1800:
                     shutil.rmtree(entry, ignore_errors=True)
         except OSError as e:
-            jm_log('jm.common.cleanup', f'清理过期目录失败: {e}')
+            jm_log('jm.common.cleanup', '清理过期目录失败', e)
 
 
 def _parse_format_flags(text: str):
@@ -88,7 +88,7 @@ HELP_TEXT = (
 def _check_cooldown(key: str) -> int:
     now = time.time()
     with _cooldown_lock:
-        if len(_last_use) > _MAX_COOLDOWN_ENTRIES:
+        while len(_last_use) > _MAX_COOLDOWN_ENTRIES:
             _last_use.popitem(last=False)
 
         last = _last_use.get(key, 0)

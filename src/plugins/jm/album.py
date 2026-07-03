@@ -24,7 +24,7 @@ from plugins.jm.upload import _upload_and_cleanup
 
 
 async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEFAULT_FMT):
-    _cleanup_stale_dirs()
+    await run_sync(_cleanup_stale_dirs)
     feature_cls, ext, fmt_name = FORMAT_MAP[fmt]
 
     out_path = _make_out_path(album_id, ext)
@@ -49,7 +49,7 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
         await jm_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)
-        jm_log('jm.album.detail', f'查询本子详情失败: {e}')
+        jm_log('jm.album.detail', '查询本子详情失败', e)
         await jm_cmd.finish("❌ 查询失败")
 
     tags_str = f"\n🏷️ {'、'.join(album.tags[:5])}" if album.tags else ""
@@ -87,7 +87,7 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
             await jm_cmd.finish("❌ 下载超时，请稍后再试")
         except Exception as e:
             cancel_event.set()
-            jm_log('jm.album.download', f'下载本子 {album_id} 失败: {e}')
+            jm_log('jm.album.download', f'下载本子 {album_id} 失败', e)
             _clear_cooldown(cooldown_key)
             await jm_cmd.finish("❌ 下载失败，请稍后再试")
 

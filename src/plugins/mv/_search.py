@@ -77,7 +77,7 @@ def _search_jav321(code: str) -> dict:
         doc = Selector(html)
         return _jav321_parse(doc)
     except Exception as e:
-        jm_log('jm.mv.search', f'jav321 parse failed: {e}')
+        jm_log('jm.mv.search', 'jav321 parse failed', e)
         return {}
 
 
@@ -89,10 +89,10 @@ def _jav321_fetch(url: str) -> str | None:
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             return None
-        jm_log('jm.mv.search', f'jav321 request failed: {e}')
+        jm_log('jm.mv.search', 'jav321 request failed', e)
         return None
     except Exception as e:
-        jm_log('jm.mv.search', f'jav321 request failed: {e}')
+        jm_log('jm.mv.search', 'jav321 request failed', e)
         return None
 
 
@@ -103,7 +103,7 @@ def _jav321_search(query: str) -> str | None:
         resp.raise_for_status()
         return resp.text
     except Exception as e:
-        jm_log('jm.mv.search', f'jav321 search failed: {e}')
+        jm_log('jm.mv.search', 'jav321 search failed', e)
         return None
 
 
@@ -142,7 +142,7 @@ def _jav321_parse(doc: Selector) -> dict:
             label = b.text.strip()
 
             if label in ('メーカー', 'Maker', 'Studio', '發行商'):
-                next_a = b.xpath('./following-sibling::a[1]')
+                next_a = b.xpath('./following::a[1]')
                 if next_a:
                     info['studio'] = next_a[0].text.strip()
             elif label in ('収録時間', '播放時間', '播放時長', '時長', 'Play time'):
