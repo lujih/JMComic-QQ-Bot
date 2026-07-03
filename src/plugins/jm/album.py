@@ -15,6 +15,8 @@ from plugins.jm.common import (
     _is_cache_valid,
     _make_out_path,
     _clear_cooldown,
+    _try_lock_album,
+    _unlock_album,
     FORMAT_MAP,
     _DEFAULT_FMT,
     _TMP_DIR,
@@ -24,6 +26,16 @@ from plugins.jm.upload import _upload_and_cleanup
 
 
 async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEFAULT_FMT):
+    if not _try_lock_album(cooldown_key):
+        jm_log('jm.album', f'忽略重复请求 {album_id} (key={cooldown_key})')
+        return
+    try:
+        await _download_album_impl(bot, event, album_id, cooldown_key, fmt)
+    finally:
+        _unlock_album(cooldown_key)
+
+
+async def _download_album_impl(bot, event, album_id: str, cooldown_key: str, fmt=_DEFAULT_FMT):
     await run_sync(_cleanup_stale_dirs)
     feature_cls, ext, fmt_name = FORMAT_MAP[fmt]
 

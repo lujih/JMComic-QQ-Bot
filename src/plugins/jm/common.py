@@ -24,6 +24,9 @@ _cooldown_lock = threading.Lock()
 _MAX_COOLDOWN_ENTRIES = 10000
 
 _semaphore = asyncio.Semaphore(3)
+_processing_albums: set[str] = set()
+_processing_lock = threading.Lock()
+
 _TMP_DIR = Path(tempfile.gettempdir()) / "jm"
 _DL_TMP = Path(tempfile.gettempdir()) / "jm_dl"
 _TMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -104,3 +107,16 @@ def _check_cooldown(key: str) -> int:
 def _clear_cooldown(key: str):
     with _cooldown_lock:
         _last_use.pop(key, None)
+
+
+def _try_lock_album(key: str) -> bool:
+    with _processing_lock:
+        if key in _processing_albums:
+            return False
+        _processing_albums.add(key)
+        return True
+
+
+def _unlock_album(key: str):
+    with _processing_lock:
+        _processing_albums.discard(key)
