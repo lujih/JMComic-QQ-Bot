@@ -10,7 +10,7 @@ from jmcomic import jm_log
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 
 from plugins.jm.cmd import jm_cmd
-from plugins.jm.common import _clear_cooldown, _DL_TMP
+from plugins.jm.common import _clear_cooldown, _get_dl_tmp
 
 
 async def _upload_via_stream(bot: Bot, group_id: int, file_path: Path, filename: str):
@@ -90,7 +90,7 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
             jm_log('jm.upload.tier2', '流式上传失败', e)
             await jm_cmd.finish(f"❌ {fmt_name} 上传失败（已尝试 2 种方式）")
     finally:
-        d = _DL_TMP / id_str
+        d = _get_dl_tmp() / id_str
         if d.exists():
             shutil.rmtree(d, ignore_errors=True)
 

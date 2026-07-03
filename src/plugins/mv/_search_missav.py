@@ -22,7 +22,14 @@ def search_missav(code: str) -> dict:
     if fetcher is None:
         return {}
 
-    url = f"{MISSAV_BASE}/{code.upper()}"
+    # 从归一化 code（如 "mdbk00331"）还原带连字符的 URL（如 "MDBK-331"）
+    m = re.match(r'^([a-z]+)(\d+)$', code)
+    url_code = code.upper()
+    if m:
+        prefix = m.group(1).upper()
+        num = m.group(2).lstrip('0') or '0'
+        url_code = f"{prefix}-{num}"
+    url = f"{MISSAV_BASE}/{url_code}"
 
     try:
         doc = fetcher.fetch(

@@ -28,13 +28,21 @@ _processing_albums: set[str] = set()
 _processing_lock = threading.Lock()
 
 _TMP_DIR = Path(tempfile.gettempdir()) / "jm"
-_DL_TMP = Path(tempfile.gettempdir()) / "jm_dl"
 _TMP_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _get_dl_tmp() -> Path:
+    try:
+        from jm_option import get_option
+        opt = get_option()
+        return Path(opt.dir_rule.base_dir)
+    except Exception:
+        return Path(tempfile.gettempdir()) / "jm_dl"
 
 
 def _cleanup_stale_dirs():
     now = time.time()
-    for d in [_DL_TMP, _TMP_DIR]:
+    for d in [_get_dl_tmp(), _TMP_DIR]:
         if not d.exists():
             continue
         try:
