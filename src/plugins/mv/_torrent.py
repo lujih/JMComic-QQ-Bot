@@ -3,7 +3,7 @@ import re
 from urllib.parse import quote
 
 import httpx
-from bs4 import BeautifulSoup
+from scrapling.parser import Selector
 from jmcomic import jm_log
 
 SUKEBEI_BASE = os.getenv("SUKEBEI_BASE_URL", "https://sukebei.nyaa.si")
@@ -20,8 +20,9 @@ def search(query: str, page: int = 1):
         jm_log('jm.mv.torrent', f"sukebei 请求失败: {e}")
         return [], False
 
-    results = _parse_page(html)
-    has_next = _has_next_page(html)
+    doc = Selector(html)
+    results = _parse_page(doc)
+    has_next = _has_next_page(doc)
     return results, has_next
 
 
@@ -37,42 +38,41 @@ def _headers():
     }
 
 
-def _parse_page(html: str):
-    soup = BeautifulSoup(html, 'html.parser')
-    table = soup.find('table', class_='table')
+def _parse_page(doc: Selector):
+    table = doc.css('table.table')
     if not table:
         return []
 
     results = []
-    for row in table.select('tbody tr'):
-        magnet_a = row.select_one('a[href^="magnet:"]')
+    for row in table[0].css('tbody tr'):
+        magnet_a = row.css('a[href^="magnet:"]')
         if not magnet_a:
             continue
 
-        magnet = magnet_a['href']
+        magnet = magnet_a[0].attrib['href']
 
         title_link = None
-        for a in row.find_all('a', href=True):
-            h = a['href']
+        for a in row.css('a[href]'):
+            h = a.attrib.get('href', '')
             if '/view/' in h or (not h.startswith('magnet:') and not h.startswith('/download/') and not h.startswith('/?c=')):
                 title_link = a
                 break
 
-        name = title_link.get_text(strip=True) if title_link else ''
+        name = title_link.text.strip() if title_link else ''
         if not name:
             continue
 
         size = ''
-        for td in row.find_all('td'):
-            text = td.get_text(strip=True)
+        for td in row.css('td'):
+            text = td.text.strip()
             if re.match(r'^\d+\.?\d*\s*(?:[KMGTP]i?B|B|bytes?)$', text):
                 size = text
                 break
 
-        cells = row.find_all('td')
+        cells = row.css('td')[-3:]
         digit_cells = []
-        for td in cells[-3:]:
-            txt = td.get_text(strip=True)
+        for td in cells:
+            txt = td.text.strip()
             if txt.isdigit():
                 digit_cells.append(int(txt))
 
@@ -90,13 +90,13 @@ def _parse_page(html: str):
     return results
 
 
-def _has_next_page(html: str) -> bool:
-    soup = BeautifulSoup(html, 'html.parser')
-    pag = soup.find('ul', class_='pagination')
+def _has_next_page(doc: Selector) -> bool:
+    pag = doc.css('ul.pagination')
     if pag:
-        lis = pag.find_all('li')
+        lis = pag[0].css('li')
         if len(lis) >= 2:
             last_li = lis[-1]
-            if 'disabled' not in last_li.get('class', []):
+            classes = last_li.attrib.get('class', '')
+            if 'disabled' not in classes.split():
                 return True
     return False

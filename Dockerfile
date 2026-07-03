@@ -16,6 +16,9 @@ RUN pip install --no-cache-dir \
     -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
 
+# Install Scrapling browser dependencies (for StealthyFetcher Cloudflare bypass)
+RUN python -c "from scrapling.cli import install; install([], standalone_mode=False)"
+
 COPY . /app/bot
 WORKDIR /app/bot
 
