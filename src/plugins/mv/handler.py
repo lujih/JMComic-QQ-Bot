@@ -15,6 +15,11 @@ from plugins.mv._search import search_video
 from plugins.mv._torrent import search as search_torrent
 
 
+def _btih(magnet: str) -> str:
+    m = re.search(r'btih:([a-fA-F0-9]+)', magnet)
+    return m.group(1).lower() if m else ''
+
+
 def _clean_magnet(magnet: str, short_id: str = "") -> str:
     """磁链清洗：去掉 &tr= tracker，dn= 替换为短番号（如 MDBK-331）"""
     parts = magnet.split('&')
@@ -96,35 +101,62 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     if av_info.get('actresses'):
         meta_lines.append(f"🎬 女優: {' '.join(av_info['actresses'])}")
     if av_info.get('date'):
-        meta_lines.append(f"📅 日期: {av_info['date']}")
+        m = re.search(r'\d{4}[-/]\d{2}[-/]\d{2}', av_info['date'])
+        meta_lines.append(f"📅 日期: {m.group() if m else av_info['date']}")
     if av_info.get('studio'):
         meta_lines.append(f"🏢 制作商: {av_info['studio']}")
     if av_info.get('duration'):
-        meta_lines.append(f"⏱ 时长: {av_info['duration']}")
+        m = re.split(r'[:,]', av_info['duration'])
+        meta_lines.append(f"⏱ 时长: {m[0].strip() if len(m) > 0 else av_info['duration']}")
 
     await mv_cmd.send("\n".join(meta_lines))
 
     # Message 3: 磁链汇总
+    # 拓宽 sukebei 搜索：去分隔符匹配更多文件名变体
+    torrent_query = re.sub(r'[-_\s]', '', text)
     try:
-        results, has_next = await run_sync(search_torrent, text, page, timeout=30)
+        results, has_next = await run_sync(search_torrent, torrent_query, page, timeout=30)
     except Exception as e:
         jm_log('jm.mv.torrent', 'sukebei 搜索失败', e)
-        await mv_cmd.finish("❌ 磁力搜索失败，请稍后再试")
+        results = []
 
-    if not results:
-        results = av_info.get('magnets')
+    # 合并 MissAV + JavDB + jav321 的磁链（BTIH 去重）
+    seen_btih = {_btih(r['magnet']) for r in results if _btih(r['magnet'])}
+    extra = av_info.get('magnets', [])
+    for m in extra:
+        b = _btih(m['magnet'])
+        if b and b not in seen_btih:
+            seen_btih.add(b)
+            results.append({'magnet': m['magnet'], 'seeders': -1})
 
     if not results:
         await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的磁力链接")
 
+    # 过滤死種：tracker seeders=0 排除，全死種时降级显示全部
+    alive = [r for r in results if r.get('seeders', -1) == -1 or r.get('seeders', 0) > 0]
+    display = alive if alive else results
+    display.sort(key=lambda r: r.get('seeders', -1), reverse=True)
+    display = display[:10]
+
     lines = []
-    for i, r in enumerate(results[:5], 1):
+    # 死種总数提示（只有当过滤后有死種且结果显示的是活種子集时）
+    dead_count = len(results) - len(display)
+    if dead_count > 0:
+        lines.append(f"💡 已过滤 {dead_count} 个死種（共 {len(results)} 个结果）")
+
+    for i, r in enumerate(display, 1):
         magnet = _clean_magnet(r['magnet'], text)
         size = r.get('size', '')
-        seeders = r.get('seeders', 0)
+        seeders = r.get('seeders', -1)
         leechers = r.get('leechers', 0)
 
-        if size:
+        if seeders == -1:
+            line = f"{i}. 🔗"
+            if size:
+                line += f"  {size}"
+            lines.append(line)
+            lines.append(f"   {magnet}")
+        elif size:
             warning = ""
             if seeders == 0:
                 warning = "  ⚠️死種"
@@ -133,7 +165,8 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             lines.append(f"{i}. {size}  👍{seeders} 👎{leechers}{warning}")
             lines.append(f"   {magnet}")
         else:
-            lines.append(f"{i}. {magnet}")
+            lines.append(f"{i}. 👍{seeders} 👎{leechers}")
+            lines.append(f"   {magnet}")
 
     if page > 1 or has_next:
         lines.append("")

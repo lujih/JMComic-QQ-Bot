@@ -126,6 +126,19 @@ def search_missav(code: str) -> dict:
                     actresses.append(name)
         if actresses:
             info['actresses'] = actresses
+
+        # Magnets
+        magnets = []
+        seen_btih = set()
+        for a in doc.css('a[href^="magnet:"]'):
+            href = a.attrib['href']
+            m = re.search(r'btih:([a-fA-F0-9]+)', href)
+            key = m.group(1).lower() if m else href
+            if key not in seen_btih:
+                seen_btih.add(key)
+                magnets.append({'magnet': href, 'seeders': -1})
+        if magnets:
+            info['magnets'] = magnets
     except Exception as e:
         jm_log('jm.mv.missav', 'MissAV 解析失败', e)
 
