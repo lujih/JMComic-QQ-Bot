@@ -1,6 +1,8 @@
 import asyncio
 import os
 import re
+import tempfile
+from pathlib import Path
 
 import httpx
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
@@ -51,7 +53,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     try:
         av_info = await run_sync(search_video, text, timeout=30)
     except Exception as e:
-        jm_log('jm.mv.search', f'视频搜索异常', e)
+        jm_log('jm.mv.search', '视频搜索异常', e)
         await mv_cmd.finish(f"❌ 搜索 {text.upper()} 时出现异常，请稍后再试")
     if not av_info:
         await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的信息")
@@ -60,19 +62,20 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         await asyncio.sleep(delay)
         try:
             os.remove(path)
-        except OSError:
+        except Exception:
             pass
 
     cover_path = None
     if img_url := av_info.get('cover'):
         try:
             resp = await run_sync(
-                httpx.get, img_url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"},
-                timeout=10,
+                lambda: httpx.get(img_url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                }, timeout=10),
+                timeout=30,
             )
             safe = re.sub(r'\W', '_', text)
-            cover_path = f"/tmp/jm_mv_cover_{safe}.jpg"
+            cover_path = str(Path(tempfile.gettempdir()) / f"jm_mv_cover_{safe}.jpg")
             with open(cover_path, "wb") as f:
                 f.write(resp.content)
             await mv_cmd.send(Message(f"[CQ:image,file=file://{cover_path}]"))

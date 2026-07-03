@@ -12,6 +12,9 @@ client:
       timeout: 30
 
 download:
+  cache: true
+  threading:
+    image: 4
   image:
     suffix: .jpg
     decode: false

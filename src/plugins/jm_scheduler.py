@@ -48,8 +48,8 @@ async def daily_recommend():
 
     try:
         bot = get_bot()
-    except ValueError:
-        jm_log("jm.scheduler.error", "每日推荐：Bot 未连接")
+    except ValueError as e:
+        jm_log("jm.scheduler.error", "每日推荐：Bot 未连接", e)
         return
     except Exception as e:
         jm_log("jm.scheduler.error", "每日推荐：获取 Bot 失败", e)

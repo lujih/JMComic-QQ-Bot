@@ -142,28 +142,25 @@ def _jav321_parse(doc: Selector) -> dict:
             label = b.text.strip()
 
             if label in ('メーカー', 'Maker', 'Studio', '發行商'):
-                next_a = b.xpath('./following::a[1]')
+                next_a = b.xpath('./following-sibling::a[1]')
                 if next_a:
                     info['studio'] = next_a[0].text.strip()
             elif label in ('収録時間', '播放時間', '播放時長', '時長', 'Play time'):
-                txt = b.xpath('./following-sibling::text()[1]')
-                if txt:
-                    text = txt[0].text.strip().lstrip(': \t')
-                    if text:
-                        info['duration'] = text
+                txt = b.xpath('./following-sibling::text()')
+                text = ''.join(t.text or '' for t in txt).strip().lstrip(': \t')
+                if text:
+                    info['duration'] = text
             elif label in ('配信開始日', '發售日', '發行日期', '發行日', 'Release Date'):
-                txt = b.xpath('./following-sibling::text()[1]')
-                if txt:
-                    text = txt[0].text.strip().lstrip(': \t')
-                    if re.search(r'\d{4}', text):
-                        info['date'] = text
+                txt = b.xpath('./following-sibling::text()')
+                text = ''.join(t.text or '' for t in txt).strip().lstrip(': \t')
+                if re.search(r'\d{4}', text):
+                    info['date'] = text
             elif label in ('お気に入り登録数', '收藏', '評分', '讚', '贊', 'Likes', 'Favorites'):
-                txt = b.xpath('./following-sibling::text()[1]')
-                if txt:
-                    text = txt[0].text.strip().lstrip(': \t')
-                    m = re.search(r'\d+', text)
-                    if m:
-                        info['favorites'] = m.group()
+                txt = b.xpath('./following-sibling::text()')
+                text = ''.join(t.text or '' for t in txt).strip().lstrip(': \t')
+                m = re.search(r'\d+', text)
+                if m:
+                    info['favorites'] = m.group()
 
         actresses = []
         for a in panel.css('a[href^="/star/"]'):

@@ -137,7 +137,7 @@ fi
 # 9. Start NoneBot2 (foreground — keeps container alive)
 echo "[start] Starting NoneBot2..."
 export PYTHONUNBUFFERED=1
-python bot.py
+gosu napcat python bot.py
 
 # 10. Cleanup on exit
 echo "[start] NoneBot2 exited, stopping..."

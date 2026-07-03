@@ -64,28 +64,28 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
             dler.download_by_photo_detail(photo)
             dler.raise_if_has_exception()
 
-    async with _semaphore:
-        if _is_cache_valid(pdf_path):
-            await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
-            return
+    try:
+        async with _semaphore:
+            if _is_cache_valid(pdf_path):
+                await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
+                return
 
-        pdf_path.unlink(missing_ok=True)
+            pdf_path.unlink(missing_ok=True)
 
-        try:
             await run_sync(_dl, timeout=120)
-        except asyncio.TimeoutError:
-            cancel_event.set()
-            await asyncio.sleep(5)
-            _clear_cooldown(cooldown_key)
-            await jm_cmd.finish("❌ 下载超时，请稍后再试")
-        except Exception as e:
-            cancel_event.set()
-            jm_log('jm.photo.download', f'下载章节 {photo_id} 失败', e)
-            _clear_cooldown(cooldown_key)
-            await jm_cmd.finish("❌ 下载失败，请稍后再试")
+    except asyncio.TimeoutError:
+        cancel_event.set()
+        await asyncio.sleep(2)
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 下载超时，请稍后再试")
+    except Exception as e:
+        cancel_event.set()
+        jm_log('jm.photo.download', f'下载章节 {photo_id} 失败', e)
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 下载失败，请稍后再试")
 
-        if not pdf_path.exists():
-            _clear_cooldown(cooldown_key)
-            await jm_cmd.finish("❌ PDF 生成失败，文件未找到")
+    if not pdf_path.exists():
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ PDF 生成失败，文件未找到")
 
-        await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
+    await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)

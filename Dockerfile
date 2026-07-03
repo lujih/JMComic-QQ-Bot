@@ -37,7 +37,7 @@ RUN chmod +x /app/bot/start.sh
 
 ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
-EXPOSE 7860 8080
+EXPOSE 7860
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
   CMD ps aux | grep -q "[p]ython.*bot.py"

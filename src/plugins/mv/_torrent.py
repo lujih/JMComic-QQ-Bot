@@ -65,7 +65,7 @@ def _parse_page(doc: Selector):
         size = ''
         for td in row.css('td'):
             text = td.text.strip()
-            if re.match(r'^\d+\.?\d*\s*(?:[KMGTP]i?B|B|bytes?)$', text):
+            if re.match(r'^\d+(?:\.\d+)?\s*(?:[KMGTP]i?B|B|bytes?)$', text):
                 size = text
                 break
 
