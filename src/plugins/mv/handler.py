@@ -114,11 +114,12 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     # Message 3: 磁链汇总
     # 拓宽 sukebei 搜索：去分隔符匹配更多文件名变体
     torrent_query = re.sub(r'[-_\s]', '', text)
+    has_next = False
+    results = []
     try:
         results, has_next = await run_sync(search_torrent, torrent_query, page, timeout=30)
     except Exception as e:
         jm_log('jm.mv.torrent', 'sukebei 搜索失败', e)
-        results = []
 
     # 合并 MissAV + JavDB + jav321 的磁链（BTIH 去重）
     seen_btih = {_btih(r['magnet']) for r in results if _btih(r['magnet'])}

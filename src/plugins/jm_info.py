@@ -46,7 +46,7 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
 
     tags_str = "、".join(album.tags) if album.tags else "无"
     lines = [
-        f"📖 {album.oname}",
+        f"📖 {album.oname or album.name}",
         f"🆔 JM{album.id}",
         f"✍️ 作者: {'、'.join(album.authors) if album.authors else 'N/A'}",
         f"📄 章节数: {len(album)}",

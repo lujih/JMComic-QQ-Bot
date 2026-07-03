@@ -146,18 +146,18 @@ def _jav321_parse(doc: Selector) -> dict:
                 if next_a:
                     info['studio'] = next_a[0].text.strip()
             elif label in ('収録時間', '播放時間', '播放時長', '時長', 'Play time'):
-                txt = b.xpath('./following-sibling::text()')
-                text = ''.join(t.text or '' for t in txt).strip().lstrip(': \t')
+                txt = b.xpath('./following-sibling::text()[1]')
+                text = (txt[0].text if txt else '').strip().lstrip(': \t')
                 if text:
                     info['duration'] = text
             elif label in ('配信開始日', '發售日', '發行日期', '發行日', 'Release Date'):
-                txt = b.xpath('./following-sibling::text()')
-                text = ''.join(t.text or '' for t in txt).strip().lstrip(': \t')
+                txt = b.xpath('./following-sibling::text()[1]')
+                text = (txt[0].text if txt else '').strip().lstrip(': \t')
                 if re.search(r'\d{4}', text):
                     info['date'] = text
             elif label in ('お気に入り登録数', '收藏', '評分', '讚', '贊', 'Likes', 'Favorites'):
-                txt = b.xpath('./following-sibling::text()')
-                text = ''.join(t.text or '' for t in txt).strip().lstrip(': \t')
+                txt = b.xpath('./following-sibling::text()[1]')
+                text = (txt[0].text if txt else '').strip().lstrip(': \t')
                 m = re.search(r'\d+', text)
                 if m:
                     info['favorites'] = m.group()
@@ -216,7 +216,7 @@ def _normalize_code(query: str) -> str:
     return code
 
 
-def _resolve_url(src: str) -> str:
+def _resolve_url(src: str, base: str = JAV321_BASE) -> str:
     if not src:
         return ''
     if src.startswith('http://') or src.startswith('https://'):
@@ -224,7 +224,7 @@ def _resolve_url(src: str) -> str:
     elif src.startswith('//'):
         url = f'https:{src}'
     else:
-        url = urljoin('https://', src)
+        url = urljoin(base.rstrip('/') + '/', src.lstrip('/'))
     return re.sub(r'(?<!:)//', '/', url)
 
 
