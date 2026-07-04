@@ -22,10 +22,17 @@ _DEFAULT_FMT = 'pdf'
 _last_use: OrderedDict[str, float] = OrderedDict()
 _cooldown_lock = threading.Lock()
 _MAX_COOLDOWN_ENTRIES = 10000
+_STALE_AGE = 1800
+_MAX_CACHE_ENTRIES = 50
+_SEEN_TTL = 120
+_MAX_SEEN_IDS = 1000
 
 _semaphore = asyncio.Semaphore(3)
 _processing_albums: set[str] = set()
 _processing_lock = threading.Lock()
+
+_seen_message_ids: dict[int, float] = {}
+_LOCK_SEEN_IDS = threading.Lock()
 
 _TMP_DIR = Path(tempfile.gettempdir()) / "jm"
 _TMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -46,13 +53,23 @@ def _cleanup_stale_dirs():
         if not d.exists():
             continue
         try:
+            # 按时间清理：删除超过 _STALE_AGE 的目录
             for entry in d.iterdir():
                 if not entry.is_dir():
                     continue
-                if now - entry.stat().st_mtime > 1800:
+                if now - entry.stat().st_mtime > _STALE_AGE:
                     shutil.rmtree(entry, ignore_errors=True)
+
+            # 按数量清理：超过 _MAX_CACHE_ENTRIES 时删除最旧的
+            entries = sorted(
+                [e for e in d.iterdir() if e.is_dir()],
+                key=lambda e: e.stat().st_mtime,
+            )
+            while len(entries) > _MAX_CACHE_ENTRIES:
+                shutil.rmtree(entries[0], ignore_errors=True)
+                entries = entries[1:]
         except OSError as e:
-            jm_log('jm.common.cleanup', '清理过期目录失败', e)
+            jm_log('jm.common.cleanup', '清理失败', e)
 
 
 def _parse_format_flags(text: str):
@@ -69,7 +86,7 @@ def _parse_format_flags(text: str):
     return text, fmt
 
 
-def _is_cache_valid(path: Path, max_age=1800):
+def _is_cache_valid(path: Path, max_age=_STALE_AGE):
     try:
         return path.exists() and time.time() - path.stat().st_mtime < max_age
     except OSError:
@@ -117,6 +134,19 @@ def _clear_cooldown(key: str):
         _last_use.pop(key, None)
 
 
+def _is_dup_message(message_id: int) -> bool:
+    now = time.time()
+    with _LOCK_SEEN_IDS:
+        if message_id in _seen_message_ids:
+            return True
+        _seen_message_ids[message_id] = now
+        if len(_seen_message_ids) > _MAX_SEEN_IDS:
+            stale = [k for k, v in _seen_message_ids.items() if now - v > _SEEN_TTL]
+            for k in stale:
+                del _seen_message_ids[k]
+        return False
+
+
 def _try_lock_album_by_aid(aid: str) -> bool:
     with _processing_lock:
         if aid in _processing_albums:
@@ -125,10 +155,6 @@ def _try_lock_album_by_aid(aid: str) -> bool:
         return True
 
 
-def _delayed_unlock_aid(aid: str):
+def _unlock_album_by_aid(aid: str):
     with _processing_lock:
         _processing_albums.discard(aid)
-
-
-def _unlock_album_by_aid(aid: str):
-    threading.Timer(COOLDOWN_SECONDS, _delayed_unlock_aid, args=(aid,)).start()

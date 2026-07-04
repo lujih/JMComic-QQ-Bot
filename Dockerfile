@@ -14,6 +14,8 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 COPY requirements.txt /tmp/
 RUN pip install --no-cache-dir \
     -r /tmp/requirements.txt && \
+    pip install --no-cache-dir --force-reinstall --no-deps \
+    "jmcomic @ git+https://github.com/lujih/JMComic-Crawler-Python.git" && \
     rm /tmp/requirements.txt
 
 # Install Scrapling browser dependencies (for StealthyFetcher Cloudflare bypass)

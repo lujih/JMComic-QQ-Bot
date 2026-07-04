@@ -13,6 +13,7 @@ from plugins.jm.common import (
     _parse_format_flags,
     _check_cooldown,
     _clear_cooldown,
+    _is_dup_message,
     _DEFAULT_FMT,
     HELP_TEXT,
 )
@@ -23,6 +24,10 @@ from plugins.jm.photo import _download_photo
 @jm_cmd.handle()
 async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     if event.user_id == int(bot.self_id):
+        return
+
+    if _is_dup_message(event.message_id):
+        jm_log('jm.handler', f'忽略重复消息 message_id={event.message_id}')
         return
 
     text = msg.extract_plain_text().strip()
