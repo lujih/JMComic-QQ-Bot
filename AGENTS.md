@@ -11,7 +11,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
                                      ├── /jm random → month_ranking → random.choice
                                      ├── /jmv      → get_album_detail
                                      ├── /jms      → search_site
-                                     ├── /mv       → jav321 标题搜索 + Sukebei 磁力链
+                                      ├── /mv       → MissAV+JavDB+jav321 三源合并 + Sukebei 磁力链
                                       └── 每日 9:00  → APScheduler → month_ranking → 群推送
 ```
 
@@ -25,7 +25,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `.env` | `DRIVER=~fastapi`, `HOST=0.0.0.0`, `PORT=8080`, `COMMAND_START=["/"]`, `TARGET_GROUPS` |
 | `config/onebot11.json` | NapCat WS 客户端 → `ws://127.0.0.1:8080/onebot/v11/ws` |
 | `src/plugins/jm/` | `/jm` 命令包 — `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(二级上传fallback), `progress.py`(进度推送), `common.py`(公共工具) |
-| `src/plugins/mv/` | `/mv` 命令包 — `handler.py`(路由), `_search.py`(三源合并: MissAV+JavDB+jav321), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
+| `src/plugins/mv/` | `/mv` 命令包 — `handler.py`(路由+磁链聚合), `_search.py`(三源 coordinator: MissAV→JavDB→jav321), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
 | `src/plugins/jm_info.py` | `/jmv` 详情 + `/jms` 搜索 |
 | `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`） |
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
@@ -75,14 +75,23 @@ pip install -e path/to/JMComic-Crawler-Python
 - 修复：`decode: true`，下载时解码 webp → JPEG
 
 ### 重复执行（NapCat 上传回吐）
-- `upload_group_file` 上传文件后，NapCat 将文件消息回吐为一条新的 `message` 事件（发送者为 bot 自身）
-- 旧 album-level 锁 key 为 `f"{user_id}:{album_id}"`，bot 自身回吐时 user_id 不同 → 锁形同虚设
-- 修复：`handler.py` 入口加 `if event.user_id == int(bot.self_id): return`
+- `upload_group_file` 上传文件后，NapCat 将文件消息回吐为一条新的 `message` 事件
+- **self_id 过滤无效**：NapCat 回放消息的 `user_id` 与原始用户**完全相同**（不是 bot 自身 ID），`if event.user_id == int(bot.self_id)` 挡不住
+- 第一次尝试（`1fc6130`）加 `self_id` 过滤 → 未解决
+- 诊断日志（`1387cc5`）证实回放消息 user_id 冒充原始用户
+- **最终修复（`5ff9271`）**：`_unlock_album` 不立即清除处理锁，改为 `threading.Timer(15, _delayed_unlock)` 后台延迟 15s 释放
+  - NapCat 回放窗口约 12s，15s 延迟锁可覆盖
+  - 锁 key 与 user_id 绑定，NapCat 冒充也无法绕过
+  - Timer 在 `_unlock_album` 被 `finally` 调用时启动，不受上传线程的影响
 
 ### Album 处理锁
-- 双重保护：album-level 锁 + cooldown 15s
+- 三重保护：album-level 处理锁 + cooldown 15s + Timer 延迟释放
 - 锁 key = `f"{user_id}:{album_id}"`，与 cooldown key 一致
-- with try/finally 保证释放，支持不同用户并发下载不同本子
+- `_try_lock_album` 检查 `_processing_albums` 集合，不阻塞直接返回 False 忽略重复
+- `_unlock_album` 改为 `threading.Timer(15, _delayed_unlock)` 延迟清除，覆盖 NapCat 回放窗口
+- `_delayed_unlock` 以 `threading.Lock` 保护 `_processing_albums` 集合的写操作
+- 正常用户再次请求同一本子需等 ~30s（15s 冷却 + 15s 处理锁延迟）
+- 不同用户的并发下载不受影响（锁 key 含 user_id）
 
 ### 动态下载目录
 - 新增 `_get_dl_tmp()` 从 option 读取 `dir_rule.base_dir`，替代硬编码 `/tmp/jm_dl/`

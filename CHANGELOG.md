@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0] — 2026-07-04
+
+### 修复
+- `/jm` 群内重复执行（NapCat 回放绕过 self_id 过滤）：`_unlock_album` 延迟 15s 释放处理锁，`threading.Timer` 覆盖 NapCat 回放窗口
+- PDF 图片破碎：`decode: false` → `true`，webp 解码后再生成 PDF
+- 过滤 bot 自身消息回吐导致 `/jm` 重复执行（`handler.py` 入口 `self_id` 过滤）
+- 处理锁在 handler 重复进入时未防止 NapCat 回放（`album-level lock` + `_try_lock_album`）
+
+### 重构
+- `src/__init__.py` 完善包结构
+- 移除 handler.py 入口 `_req_id` 诊断日志（根因已确认）
+
 ## [0.1.0] — 2026-07-04
 
 ### 新增

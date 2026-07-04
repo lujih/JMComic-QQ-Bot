@@ -1,8 +1,28 @@
 [project]
 name = "jmcomic-qq-bot"
-version = "0.1.0"
+version = "0.2.0"
 description = "QQ bot for JMComic download & AV search"
 requires-python = ">=3.10"
+authors = [
+    {name = "cszx"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: No Input/Output (Daemon)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: Chinese (Simplified)",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Communications :: Chat",
+]
+
+[project.urls]
+Homepage = "https://github.com/lujih/JMComic-QQ-Bot"
+Source = "https://github.com/lujih/JMComic-QQ-Bot"
+BugTraqs = "https://github.com/lujih/JMComic-QQ-Bot/issues"
+Changelog = "https://github.com/lujih/JMComic-QQ-Bot/blob/main/CHANGELOG.md"
 dependencies = [
     "nonebot2[fastapi]>=2.3.0,<2.5.0",
     "nonebot-adapter-onebot>=2.4.0",

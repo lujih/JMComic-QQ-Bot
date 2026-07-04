@@ -195,7 +195,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
      │                              │
      └── WebUI (7860)               ├── /jm      → 下载 + 格式导出
                                      ├── /jmv/jms → 查询
-                                     ├── /mv      → MissAV 搜索 + Sukebei 磁力链
+                                      ├── /mv      → MissAV+JavDB+jav321 三源合并 + Sukebei 磁力链
                                       └── 每日 9:00 → 自动推荐
 ```
 
@@ -217,6 +217,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | QQ 扫码后闪退 | 账号风控 / NTQQ 兼容性 | 换一个小号，或更新 napcat-docker 镜像版本 |
 | `/jm` 命令返回超时 | 禁漫API 请求超时 | HF 海外节点正常，无需代理；若持续可重试 |
 | `/jm` 返回「文件未找到」 | 生成阶段错误 | 检查 Container Logs 中 jmcomic 报错 |
+| `/jm` 群内重复下载两次 | NapCat 上传完成回放假消息 | 已在最新版本修复（处理锁延迟 15s 释放），pull 最新代码 |
 | 每日 9:00 未推送 | `TARGET_GROUPS` 未配置 | 添加群号到环境变量 |
 
 ## 文件结构
@@ -235,6 +236,12 @@ JMComic-QQ-Bot/
 ├── pyproject.toml         # 项目配置
 ├── LICENSE
 ├── README.md              # 本文件
+├── AGENTS.md              # AI 助手上下文（架构/坑/编码规范）
+├── CHANGELOG.md           # 变更日志
+├── CONTRIBUTING.md        # 贡献指南
+├── SECURITY.md            # 安全策略（可选）
+├── .gitignore
+├── .dockerignore
 ├── src/
 │   ├── _common.py        # run_sync 共享函数
 │   ├── jm_option.py      # jmcomic option 双检锁缓存
@@ -264,8 +271,7 @@ JMComic-QQ-Bot/
 │   │   ├── bug_report.md
 │   │   └── feature_request.md
 │   └── PULL_REQUEST_TEMPLATE.md
-├── CONTRIBUTING.md
-├── CHANGELOG.md
+└── .codegraph/            # 代码图谱索引（AI 开发辅助）
 ```
 
 ## 开发指南
