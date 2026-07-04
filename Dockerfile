@@ -2,7 +2,7 @@ FROM mlikiowa/napcat-docker:v4.18.7
 
 RUN apt-get update && apt-get --fix-broken install -y && \
     apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-venv ffmpeg \
+    python3 python3-pip python3-venv ffmpeg git \
     && rm -rf /var/lib/apt/lists/* && \
     python3 -c "import sys; assert sys.version_info >= (3,10), f'Python 3.10+ required, got {sys.version_info}'" && \
     ln -sf /usr/bin/python3 /usr/bin/python
