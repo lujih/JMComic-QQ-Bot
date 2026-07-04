@@ -7,7 +7,7 @@ JAVDB_BASE = os.getenv("JAVDB_BASE_URL", "https://javdb.com")
 _TIMEOUT = 45
 
 
-def _get_fetcher():
+def _init_fetcher():
     try:
         from scrapling.fetchers import StealthyFetcher
         StealthyFetcher.adaptive = True
@@ -15,6 +15,13 @@ def _get_fetcher():
     except ImportError:
         jm_log('jm.mv.javdb', "StealthyFetcher 不可用，无法请求 JavDB")
         return None
+
+
+_FETCHER = _init_fetcher()
+
+
+def _get_fetcher():
+    return _FETCHER
 
 
 def search_javdb(code: str) -> dict:

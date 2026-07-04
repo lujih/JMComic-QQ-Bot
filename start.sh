@@ -1,5 +1,6 @@
 #!/bin/bash
 # 不使用 set -e：后台进程和循环并存时意外退出风险高，显式错误处理
+set -u
 
 # 优雅关闭：收到 SIGTERM 后先停前台进程，再清理后台任务
 trap 'echo "[start] Caught SIGTERM, shutting down..."; kill $(jobs -p) 2>/dev/null; exit 0' TERM
@@ -10,7 +11,7 @@ NAPCAT_CONFIG=$NAPCAT_DIR/config
 mkdir -p "$NAPCAT_CONFIG"
 
 # 0a. Generate random WebUI token if not set
-if [ -z "${WEBUI_TOKEN}" ]; then
+if [ -z "${WEBUI_TOKEN:-}" ]; then
     if command -v openssl &>/dev/null; then
         WEBUI_TOKEN=$(openssl rand -hex 16)
     else
@@ -114,7 +115,7 @@ echo "[start] Starting QQ + NapCat..."
 cd "$NAPCAT_DIR"
 start_qq() {
     while true; do
-        if [ -n "${ACCOUNT}" ]; then
+        if [ -n "${ACCOUNT:-}" ]; then
             gosu napcat /opt/QQ/qq --no-sandbox -q "$ACCOUNT" > /dev/null 2>&1 &
         else
             gosu napcat /opt/QQ/qq --no-sandbox > /dev/null 2>&1 &

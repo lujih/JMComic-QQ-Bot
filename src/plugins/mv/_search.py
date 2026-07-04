@@ -83,9 +83,10 @@ def _search_jav321(code: str) -> dict:
 
 def _jav321_fetch(url: str) -> str | None:
     try:
-        resp = httpx.get(url, headers=_jav321_headers(), timeout=_TIMEOUT, follow_redirects=True)
-        resp.raise_for_status()
-        return resp.text
+        with httpx.Client() as client:
+            resp = client.get(url, headers=_jav321_headers(), timeout=_TIMEOUT, follow_redirects=True)
+            resp.raise_for_status()
+            return resp.text
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
             return None
@@ -99,9 +100,10 @@ def _jav321_fetch(url: str) -> str | None:
 def _jav321_search(query: str) -> str | None:
     url = f"{JAV321_BASE}/search"
     try:
-        resp = httpx.post(url, data={'sn': query.strip()}, headers=_jav321_headers(), timeout=_TIMEOUT, follow_redirects=True)
-        resp.raise_for_status()
-        return resp.text
+        with httpx.Client() as client:
+            resp = client.post(url, data={'sn': query.strip()}, headers=_jav321_headers(), timeout=_TIMEOUT, follow_redirects=True)
+            resp.raise_for_status()
+            return resp.text
     except Exception as e:
         jm_log('jm.mv.search', 'jav321 search failed', e)
         return None
