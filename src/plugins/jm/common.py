@@ -125,6 +125,10 @@ def _try_lock_album(key: str) -> bool:
         return True
 
 
-def _unlock_album(key: str):
+def _delayed_unlock(key: str):
     with _processing_lock:
         _processing_albums.discard(key)
+
+
+def _unlock_album(key: str):
+    threading.Timer(COOLDOWN_SECONDS, _delayed_unlock, args=(key,)).start()

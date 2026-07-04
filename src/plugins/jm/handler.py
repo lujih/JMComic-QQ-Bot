@@ -21,12 +21,7 @@ from plugins.jm.photo import _download_photo
 
 @jm_cmd.handle()
 async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
-    from uuid import uuid4
-    _req_id = str(uuid4())[:8]
-    jm_log('jm.handler', f'[{_req_id}] entry: user_id={event.user_id} msg={msg.extract_plain_text()[:60]}')
-
     if event.user_id == int(bot.self_id):
-        jm_log('jm.handler', f'[{_req_id}] self_id 过滤: user_id={event.user_id}')
         return
 
     text = msg.extract_plain_text().strip()
@@ -77,7 +72,6 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     remaining = _check_cooldown(cooldown_key)
     if remaining:
         await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
-    jm_log('jm.handler', f'[{_req_id}] 开始下载 album_id={album_id}')
     await _download_album(bot, event, album_id, cooldown_key, fmt)
 
 
