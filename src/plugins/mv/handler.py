@@ -17,7 +17,7 @@ from plugins.mv._torrent import search as search_torrent
 
 def _btih(magnet: str) -> str:
     m = re.search(r'btih:([a-fA-F0-9]+)', magnet)
-    return m.group(1).lower() if m else ''
+    return m.group(1).lower() if m else magnet
 
 
 def _clean_magnet(magnet: str, short_id: str = "") -> str:
@@ -79,6 +79,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
                 }, timeout=10),
                 timeout=30,
             )
+            resp.close()
             safe = re.sub(r'\W', '_', text)
             import uuid
             cover_path = str(Path(tempfile.gettempdir()) / f"jm_mv_cover_{safe}_{uuid.uuid4().hex[:8]}.jpg")

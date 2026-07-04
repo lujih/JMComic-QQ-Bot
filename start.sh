@@ -1,6 +1,9 @@
 #!/bin/bash
 # 不使用 set -e：后台进程和循环并存时意外退出风险高，显式错误处理
 
+# 优雅关闭：收到 SIGTERM 后先停前台进程，再清理后台任务
+trap 'echo "[start] Caught SIGTERM, shutting down..."; kill $(jobs -p) 2>/dev/null; exit 0' TERM
+
 # 0. Convenience symlinks for the base image layout
 NAPCAT_DIR=/app/napcat
 NAPCAT_CONFIG=$NAPCAT_DIR/config
@@ -8,8 +11,12 @@ mkdir -p "$NAPCAT_CONFIG"
 
 # 0a. Generate random WebUI token if not set
 if [ -z "${WEBUI_TOKEN}" ]; then
-    WEBUI_TOKEN=$(openssl rand -hex 16)
-    echo "[start] Generated random WebUI token: ${WEBUI_TOKEN}"
+    if command -v openssl &>/dev/null; then
+        WEBUI_TOKEN=$(openssl rand -hex 16)
+    else
+        WEBUI_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(16))")
+    fi
+    echo "[start] Generated random WebUI token: ${WEBUI_TOKEN:0:4}...（已脱敏）"
 fi
 
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
@@ -22,6 +29,8 @@ cat > "$NAPCAT_CONFIG/webui.json" << EOF
     "loginRate": 3
 }
 EOF
+# Token 已写入配置文件，从环境变量中移除，减少子进程暴露面
+unset WEBUI_TOKEN
 
 # 2. NapCat Shell 已在 Dockerfile 构建时解压，如有缺失则运行时补充
 if [ ! -f "$NAPCAT_DIR/napcat.mjs" ]; then
@@ -60,7 +69,7 @@ rm -f "/dev/.dockerenv" "/run/systemd/container"
 # 5. Background: monitor QQ login and sync onebot11 config per account
 sync_onebot11_config() {
     while true; do
-        sleep 10
+        sleep 30
         for d in /app/.config/QQ/*/; do
             [ -d "$d" ] || continue
             [ -f "${d}nt_qq.db" ] || continue

@@ -17,12 +17,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Topic :: Communications :: Chat",
 ]
-
-[project.urls]
-Homepage = "https://github.com/lujih/JMComic-QQ-Bot"
-Source = "https://github.com/lujih/JMComic-QQ-Bot"
-BugTraqs = "https://github.com/lujih/JMComic-QQ-Bot/issues"
-Changelog = "https://github.com/lujih/JMComic-QQ-Bot/blob/main/CHANGELOG.md"
 dependencies = [
     "nonebot2[fastapi]>=2.3.0,<2.5.0",
     "nonebot-adapter-onebot>=2.4.0",
@@ -33,6 +27,16 @@ dependencies = [
     "httpx>=0.28.0",
     "scrapling[fetchers]>=0.4.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/lujih/JMComic-QQ-Bot"
+Source = "https://github.com/lujih/JMComic-QQ-Bot"
+BugReports = "https://github.com/lujih/JMComic-QQ-Bot/issues"
+Changelog = "https://github.com/lujih/JMComic-QQ-Bot/blob/main/CHANGELOG.md"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"
 
 [tool.nonebot]
 plugin_dirs = ["src/plugins"]

@@ -13,6 +13,7 @@ from plugins.jm.common import (
     _semaphore,
     _is_cache_valid,
     _make_out_path,
+    _get_dl_tmp,
     _clear_cooldown,
     _try_lock_album_by_aid,
     _unlock_album_by_aid,
@@ -103,6 +104,10 @@ async def _download_album_impl(bot, event, album_id: str, cooldown_key: str, fmt
         await jm_cmd.finish("❌ 下载失败，请稍后再试")
 
     if not out_path.exists():
+        # 清理下载工作目录
+        dl_dir = _get_dl_tmp() / album_id
+        if dl_dir.exists():
+            shutil.rmtree(dl_dir, ignore_errors=True)
         _clear_cooldown(cooldown_key)
         await jm_cmd.finish(f"❌ {fmt_name} 生成失败，文件未找到")
 
