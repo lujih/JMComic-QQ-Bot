@@ -12,6 +12,7 @@ from plugins.jm.cmd import jm_cmd
 from plugins.jm.common import (
     _parse_format_flags,
     _check_cooldown,
+    _clear_cooldown,
     _DEFAULT_FMT,
     HELP_TEXT,
 )

@@ -117,18 +117,18 @@ def _clear_cooldown(key: str):
         _last_use.pop(key, None)
 
 
-def _try_lock_album(key: str) -> bool:
+def _try_lock_album_by_aid(aid: str) -> bool:
     with _processing_lock:
-        if key in _processing_albums:
+        if aid in _processing_albums:
             return False
-        _processing_albums.add(key)
+        _processing_albums.add(aid)
         return True
 
 
-def _delayed_unlock(key: str):
+def _delayed_unlock_aid(aid: str):
     with _processing_lock:
-        _processing_albums.discard(key)
+        _processing_albums.discard(aid)
 
 
-def _unlock_album(key: str):
-    threading.Timer(COOLDOWN_SECONDS, _delayed_unlock, args=(key,)).start()
+def _unlock_album_by_aid(aid: str):
+    threading.Timer(COOLDOWN_SECONDS, _delayed_unlock_aid, args=(aid,)).start()

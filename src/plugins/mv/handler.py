@@ -80,7 +80,8 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
                 timeout=30,
             )
             safe = re.sub(r'\W', '_', text)
-            cover_path = str(Path(tempfile.gettempdir()) / f"jm_mv_cover_{safe}.jpg")
+            import uuid
+            cover_path = str(Path(tempfile.gettempdir()) / f"jm_mv_cover_{safe}_{uuid.uuid4().hex[:8]}.jpg")
             with open(cover_path, "wb") as f:
                 f.write(resp.content)
             await mv_cmd.send(Message(f"[CQ:image,file=file://{cover_path}]"))
@@ -140,8 +141,8 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     display = display[:10]
 
     lines = []
-    # 死種总数提示（只有当过滤后有死種且结果显示的是活種子集时）
-    dead_count = len(results) - len(display)
+    # 死種总数提示：dead = 所有结果中种子数为 0 的条目数
+    dead_count = len(results) - len(alive)
     if dead_count > 0:
         lines.append(f"💡 已过滤 {dead_count} 个死種（共 {len(results)} 个结果）")
 
