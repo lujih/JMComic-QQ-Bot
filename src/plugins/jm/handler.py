@@ -21,6 +21,9 @@ from plugins.jm.photo import _download_photo
 
 @jm_cmd.handle()
 async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
+    if event.user_id == int(bot.self_id):
+        return
+
     text = msg.extract_plain_text().strip()
 
     try:
