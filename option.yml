@@ -17,6 +17,6 @@ download:
     image: 4
   image:
     suffix: .jpg
-    decode: false
+    decode: true
 
 

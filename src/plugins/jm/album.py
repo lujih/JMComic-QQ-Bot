@@ -2,6 +2,7 @@ import shutil
 import tempfile
 import threading
 import asyncio
+from uuid import uuid4
 
 from jmcomic import jm_log
 from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFailException
@@ -36,6 +37,8 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
 
 
 async def _download_album_impl(bot, event, album_id: str, cooldown_key: str, fmt=_DEFAULT_FMT):
+    _req_id = str(uuid4())[:8]
+    jm_log('jm.album', f'[{_req_id}] 开始下载 {album_id}')
     await run_sync(_cleanup_stale_dirs)
     feature_cls, ext, fmt_name = FORMAT_MAP[fmt]
 
