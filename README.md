@@ -25,7 +25,7 @@ pinned: false
 | `/jm random` | 随机推荐本子 |
 | `/jmv <ID>` | 查看本子详情 |
 | `/jms <关键词>` | 搜索本子 |
-| `/mv <番号>` | 搜索番号并返回磁力链接（MissAV 标题 + Sukebei 做种） |
+| `/mv <番号>` | 搜索番号返回磁力链接（MissAV+JavDB+jav321 三源合并 + Sukebei 磁力链） |
 | 每日 9:00 自动推送 | 随机推荐到已配置群 |
 
 ## 快速部署
@@ -173,6 +173,7 @@ client:
 download:
   image:
     suffix: .jpg
+    decode: true       # webp → JPEG 解码（必须 true，否则 PDF 图片破碎）
 ```
 
 > 格式配置（PDF/ZIP/长图）通过代码传入 `Feature.export_*`，不写在 option.yml 的 plugin 段。
@@ -226,34 +227,45 @@ JMComic-QQ-Bot/
 ├── config/
 │   └── onebot11.json      # NapCat WS 客户端配置
 ├── option.yml             # jmcomic 下载配置
+├── .env.example           # 环境变量模板
 ├── requirements.txt       # Python 依赖
 ├── Dockerfile             # HF Spaces Docker 构建
 ├── start.sh               # 容器启动入口
 ├── .env                   # 环境变量（已 gitignore）
 ├── pyproject.toml         # 项目配置
 ├── LICENSE
-├── README.md
-└── src/
-    ├── jm_option.py       # jmcomic option 双检锁缓存
-    └── plugins/
-        ├── __init__.py
-        ├── jm_info.py     # 查询命令（/jmv /jms）
-        ├── jm_scheduler.py# 定时推荐
-        ├── jm/            # /jm 命令包
-        │   ├── __init__.py
-        │   ├── cmd.py
-        │   ├── handler.py
-        │   ├── album.py
-        │   ├── photo.py
-        │   ├── upload.py
-        │   ├── progress.py
-        │   └── common.py
-        └── mv/            # /mv 命令包
-            ├── __init__.py
-            ├── cmd.py
-            ├── handler.py
-            ├── _search.py
-            └── _torrent.py
+├── README.md              # 本文件
+├── src/
+│   ├── _common.py        # run_sync 共享函数
+│   ├── jm_option.py      # jmcomic option 双检锁缓存
+│   └── plugins/
+│       ├── __init__.py
+│       ├── jm_info.py    # 查询命令（/jmv /jms）
+│       ├── jm_scheduler.py # 定时推荐
+│       ├── jm/           # /jm 命令包
+│       │   ├── __init__.py
+│       │   ├── cmd.py
+│       │   ├── handler.py
+│       │   ├── album.py
+│       │   ├── photo.py
+│       │   ├── upload.py
+│       │   ├── progress.py
+│       │   └── common.py
+│       └── mv/           # /mv 命令包
+│           ├── __init__.py
+│           ├── cmd.py
+│           ├── handler.py
+│           ├── _search.py
+│           ├── _search_missav.py
+│           ├── _search_javdb.py
+│           └── _torrent.py
+├── .github/
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── bug_report.md
+│   │   └── feature_request.md
+│   └── PULL_REQUEST_TEMPLATE.md
+├── CONTRIBUTING.md
+├── CHANGELOG.md
 ```
 
 ## 开发指南

@@ -69,6 +69,29 @@ pip install -e path/to/JMComic-Crawler-Python
 - 最初 `jm_scheduler.py` 直接调用 `create_option_by_file(str(OPTION_PATH))`，与 `jm_option.py` 缓存单例不一致
 - 修复：改为 `from jm_option import get_option`，与 `src/plugins/jm/` 包共享同一 option 实例
 
+### PDF 图片破碎（`decode: false`）
+- 旧 `option.yml` 有 `decode: false`，webp 未解码直接存为 `.jpg`
+- img2pdf 插件读文件时当 JPEG 处理但实际内容为 WebP → PDF 内图片破碎
+- 修复：`decode: true`，下载时解码 webp → JPEG
+
+### 重复执行（NapCat 上传回吐）
+- `upload_group_file` 上传文件后，NapCat 将文件消息回吐为一条新的 `message` 事件（发送者为 bot 自身）
+- 旧 album-level 锁 key 为 `f"{user_id}:{album_id}"`，bot 自身回吐时 user_id 不同 → 锁形同虚设
+- 修复：`handler.py` 入口加 `if event.user_id == int(bot.self_id): return`
+
+### Album 处理锁
+- 双重保护：album-level 锁 + cooldown 15s
+- 锁 key = `f"{user_id}:{album_id}"`，与 cooldown key 一致
+- with try/finally 保证释放，支持不同用户并发下载不同本子
+
+### 动态下载目录
+- 新增 `_get_dl_tmp()` 从 option 读取 `dir_rule.base_dir`，替代硬编码 `/tmp/jm_dl/`
+- upload.py 同步使用 `_get_dl_tmp()`
+
+### MissAV/JavDB URL 格式
+- 禁漫搜索返回的番号是归一化格式（`mdbk00331`），MissAV/JavDB 需要带连字符的格式（`MDBK-331`）
+- 修复：`_search_missav.py` / `_search_javdb.py` 中用 regex 还原 `{PREFIX}-{NUM}`
+
 ### 部署
 - 首次部署需通过 NapCat WebUI 扫码登录 QQ 小号
 - HF Spaces 磁盘为临时存储，Space 重启后需重新扫码
