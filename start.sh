@@ -17,7 +17,7 @@ if [ -z "${WEBUI_TOKEN:-}" ]; then
     else
         WEBUI_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(16))")
     fi
-    echo "[start] Generated random WebUI token: ${WEBUI_TOKEN:0:4}...（已脱敏）"
+    echo "[start] Generated random WebUI token: ${WEBUI_TOKEN}"
 fi
 
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
