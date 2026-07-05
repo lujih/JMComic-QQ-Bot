@@ -9,7 +9,6 @@ from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFail
 from jm_option import get_option as _get_option
 from plugins.jm.cmd import jm_cmd
 from plugins.jm.common import (
-    _cleanup_stale_dirs,
     run_sync,
     _semaphore,
     _is_cache_valid,
@@ -35,7 +34,6 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
 
 
 async def _download_photo_impl(bot, event, photo_id: str, cooldown_key: str):
-    await run_sync(_cleanup_stale_dirs)
     pdf_path = _make_out_path(photo_id, 'pdf')
 
     usage = shutil.disk_usage(tempfile.gettempdir())
@@ -77,14 +75,14 @@ async def _download_photo_impl(bot, event, photo_id: str, cooldown_key: str):
             dler.download_by_photo_detail(photo)
             dler.raise_if_has_exception()
 
+    # 缓存命中：直接上传，不占用 semaphore 下载槽
+    if _is_cache_valid(pdf_path):
+        await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
+        return
+
     try:
         async with _semaphore:
-            if _is_cache_valid(pdf_path):
-                await _upload_and_cleanup(bot, event, pdf_path, photo_id, cooldown_key)
-                return
-
             pdf_path.unlink(missing_ok=True)
-
             await run_sync(_dl, timeout=120)
     except asyncio.TimeoutError:
         cancel_event.set()

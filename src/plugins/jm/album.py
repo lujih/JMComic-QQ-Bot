@@ -8,7 +8,6 @@ from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFail
 from jm_option import get_option as _get_option
 from plugins.jm.cmd import jm_cmd
 from plugins.jm.common import (
-    _cleanup_stale_dirs,
     run_sync,
     _semaphore,
     _is_cache_valid,
@@ -36,7 +35,6 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
 
 
 async def _download_album_impl(bot, event, album_id: str, cooldown_key: str, fmt=_DEFAULT_FMT):
-    await run_sync(_cleanup_stale_dirs)
     feature_cls, ext, fmt_name = FORMAT_MAP[fmt]
 
     out_path = _make_out_path(album_id, ext)
@@ -83,14 +81,14 @@ async def _download_album_impl(bot, event, album_id: str, cooldown_key: str, fmt
             dler.download_by_album_detail(album)
             dler.raise_if_has_exception()
 
+    # 缓存命中：直接上传，不占用 semaphore 下载槽
+    if _is_cache_valid(out_path):
+        await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)
+        return
+
     try:
         async with _semaphore:
-            if _is_cache_valid(out_path):
-                await _upload_and_cleanup(bot, event, out_path, album_id, cooldown_key, ext, fmt_name)
-                return
-
             out_path.unlink(missing_ok=True)
-
             await run_sync(_dl, timeout=300)
     except asyncio.TimeoutError:
         cancel_event.set()

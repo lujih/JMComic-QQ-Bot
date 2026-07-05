@@ -1,4 +1,4 @@
-FROM mlikiowa/napcat-docker:v4.18.7
+FROM mlikiowa/napcat-docker:v4.18.8
 
 RUN apt-get update && apt-get --fix-broken install -y && \
     apt-get install -y --no-install-recommends \

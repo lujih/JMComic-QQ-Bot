@@ -14,7 +14,7 @@ client:
 download:
   cache: true
   threading:
-    image: 4
+    image: 2
   image:
     suffix: .jpg
     decode: true

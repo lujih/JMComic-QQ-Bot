@@ -10,8 +10,10 @@ from nonebot_plugin_apscheduler import scheduler
 from jmcomic import jm_log
 from jm_option import get_option
 
+from plugins.jm.common import _cleanup_stale_dirs
+
 __plugin_name__ = "jm_scheduler"
-__plugin_usage__ = "每日早 9 点推送随机推荐"
+__plugin_usage__ = "每日早 9 点推送随机推荐 + 定时清理下载缓存"
 
 
 def _parse_target_groups() -> list[int]:
@@ -60,6 +62,13 @@ async def daily_recommend():
             await bot.send_msg(message_type="group", group_id=gid, message=text)
         except Exception as e:
             jm_log("jm.scheduler.error", f"每日推荐：发送到群 {gid} 失败", e)
+
+
+@scheduler.scheduled_job("interval", minutes=5, id="cleanup_stale_dirs")
+async def cleanup_stale_dirs():
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _cleanup_stale_dirs)
+    jm_log("jm.scheduler.cleanup", "定时清理下载缓存完成")
 
 
 

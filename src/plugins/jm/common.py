@@ -27,7 +27,7 @@ _MAX_CACHE_ENTRIES = 50
 _SEEN_TTL = 120
 _MAX_SEEN_IDS = 1000
 
-_semaphore = asyncio.Semaphore(3)
+_semaphore = asyncio.Semaphore(2)
 _processing_albums: set[str] = set()
 _processing_lock = threading.Lock()
 

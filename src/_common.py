@@ -5,7 +5,7 @@ from functools import partial
 from jmcomic import jm_log
 
 _THREAD_POOL = concurrent.futures.ThreadPoolExecutor(
-    max_workers=8,
+    max_workers=4,
     thread_name_prefix='jm_sync'
 )
 
