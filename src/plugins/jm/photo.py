@@ -15,8 +15,8 @@ from plugins.jm.common import (
     _make_out_path,
     _get_dl_tmp,
     _clear_cooldown,
-    _try_lock_album_by_aid,
-    _unlock_album_by_aid,
+    _try_lock_photo_by_pid,
+    _unlock_photo_by_pid,
     _TMP_DIR,
 )
 from plugins.jm.progress import ProgressJmDownloader
@@ -24,13 +24,13 @@ from plugins.jm.upload import _upload_and_cleanup
 
 
 async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
-    if not _try_lock_album_by_aid(photo_id):
+    if not _try_lock_photo_by_pid(photo_id):
         jm_log('jm.photo', f'忽略重复请求 p{photo_id}')
         return
     try:
         await _download_photo_impl(bot, event, photo_id, cooldown_key)
     finally:
-        _unlock_album_by_aid(photo_id)
+        _unlock_photo_by_pid(photo_id)
 
 
 async def _download_photo_impl(bot, event, photo_id: str, cooldown_key: str):

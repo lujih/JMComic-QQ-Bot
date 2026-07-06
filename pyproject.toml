@@ -37,7 +37,7 @@ Changelog = "https://github.com/lujih/JMComic-QQ-Bot/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["setuptools>=64"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta:__legacy__"
 
 [tool.nonebot]
 plugin_dirs = ["src/plugins"]

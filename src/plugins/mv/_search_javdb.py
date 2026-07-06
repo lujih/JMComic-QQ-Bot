@@ -44,7 +44,7 @@ def search_javdb(code: str) -> dict:
             headless=True,
             solve_cloudflare=True,
             timeout=_TIMEOUT,
-            network_idle=True,
+            network_idle=False,
         )
     except Exception as e:
         jm_log('jm.mv.javdb', 'JavDB 请求失败', e)

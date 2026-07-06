@@ -1,4 +1,4 @@
-FROM mlikiowa/napcat-docker:latest
+FROM mlikiowa/napcat-docker:v4.18.7
 
 RUN apt-get update && apt-get --fix-broken install -y && \
     apt-get install -y --no-install-recommends \
@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir \
     rm /tmp/requirements.txt
 
 # Install Scrapling browser dependencies (for StealthyFetcher Cloudflare bypass)
-RUN python -c "from scrapling.cli import install; install([], standalone_mode=False)"
+RUN python -c "from scrapling.cli import install; install(['chromium'], standalone_mode=False)"
 
 COPY . /app/bot
 WORKDIR /app/bot
@@ -41,7 +41,7 @@ ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
 EXPOSE 7860
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+HEALTHCHECK --interval=120s --timeout=10s --start-period=120s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=5)"
 
 CMD ["bash", "/app/bot/start.sh"]

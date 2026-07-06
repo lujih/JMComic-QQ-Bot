@@ -55,7 +55,7 @@ def _parse_page(doc: Selector):
         title_link = None
         for a in row.css('a[href]'):
             h = a.attrib.get('href', '')
-            if '/view/' in h or (not h.startswith('magnet:') and not h.startswith('/download/') and not h.startswith('/?c=')):
+            if '/view/' in h or (not h.startswith('magnet:') and not h.startswith('/download/') and not h.startswith('/?c=') and not h.startswith('/user/')):
                 title_link = a
                 break
 
@@ -70,15 +70,20 @@ def _parse_page(doc: Selector):
                 size = text
                 break
 
-        cells = row.css('td')[-3:]
-        digit_cells = []
-        for td in cells:
-            txt = td.text.strip()
-            if txt.isdigit():
-                digit_cells.append(int(txt))
-
-        seeders = digit_cells[-2] if len(digit_cells) >= 2 else 0
-        leechers = digit_cells[-1] if len(digit_cells) >= 1 else 0
+        # Sukebei 列序: category | name | download | size | seeders | leechers | completed
+        cols = row.css('td')
+        if len(cols) >= 3:
+            try:
+                seeders = int(cols[-3].text.strip())
+            except (ValueError, IndexError):
+                seeders = 0
+            try:
+                leechers = int(cols[-2].text.strip())
+            except (ValueError, IndexError):
+                leechers = 0
+        else:
+            seeders = 0
+            leechers = 0
 
         results.append({
             'name': name,

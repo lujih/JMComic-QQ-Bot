@@ -54,21 +54,26 @@ def _cleanup_stale_dirs() -> int:
         if not d.exists():
             continue
         try:
-            # 按时间清理：删除超过 _STALE_AGE 的目录
+            # 按时间清理：删除超过 _STALE_AGE 的目录和文件
             for entry in d.iterdir():
-                if not entry.is_dir():
-                    continue
                 if now - entry.stat().st_mtime > _STALE_AGE:
-                    shutil.rmtree(entry, ignore_errors=True)
+                    if entry.is_dir():
+                        shutil.rmtree(entry, ignore_errors=True)
+                    else:
+                        entry.unlink(missing_ok=True)
                     total += 1
 
-            # 按数量清理：超过 _MAX_CACHE_ENTRIES 时删除最旧的
+            # 按数量清理：超过 _MAX_CACHE_ENTRIES 时删除最旧的（目录 + 文件）
             entries = sorted(
-                [e for e in d.iterdir() if e.is_dir()],
+                d.iterdir(),
                 key=lambda e: e.stat().st_mtime,
             )
             while len(entries) > _MAX_CACHE_ENTRIES:
-                shutil.rmtree(entries[0], ignore_errors=True)
+                e = entries[0]
+                if e.is_dir():
+                    shutil.rmtree(e, ignore_errors=True)
+                else:
+                    e.unlink(missing_ok=True)
                 total += 1
                 entries = entries[1:]
         except OSError as e:
@@ -158,6 +163,20 @@ def _try_lock_album_by_aid(aid: str) -> bool:
             return False
         _processing_albums.add(aid)
         return True
+
+
+def _try_lock_photo_by_pid(pid: str) -> bool:
+    key = f'p:{pid}'
+    with _processing_lock:
+        if key in _processing_albums:
+            return False
+        _processing_albums.add(key)
+        return True
+
+
+def _unlock_photo_by_pid(pid: str):
+    with _processing_lock:
+        _processing_albums.discard(f'p:{pid}')
 
 
 def _unlock_album_by_aid(aid: str):

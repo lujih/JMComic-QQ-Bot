@@ -3,7 +3,7 @@
 set -u
 
 # 优雅关闭：收到 SIGTERM 后先停前台进程，再清理后台任务
-trap 'echo "[start] Caught SIGTERM, shutting down..."; kill $(jobs -p) 2>/dev/null; exit 0' TERM
+trap 'echo "[start] Caught signal, shutting down..."; kill $(jobs -p) 2>/dev/null; exit 0' TERM INT QUIT HUP
 
 # 0. Convenience symlinks for the base image layout
 NAPCAT_DIR=/app/napcat
@@ -17,7 +17,7 @@ if [ -z "${WEBUI_TOKEN:-}" ]; then
     else
         WEBUI_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(16))")
     fi
-    echo "[start] Generated random WebUI token: ${WEBUI_TOKEN}"
+    echo "[start] Generated random WebUI token: ${WEBUI_TOKEN:0:4}..."
 fi
 
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
@@ -32,6 +32,7 @@ cat > "$NAPCAT_CONFIG/webui.json" << EOF
 EOF
 # Token 已写入配置文件，从环境变量中移除，减少子进程暴露面
 unset WEBUI_TOKEN
+unset ONEBOT_TOKEN
 
 # 2. NapCat Shell 已在 Dockerfile 构建时解压，如有缺失则运行时补充
 if [ ! -f "$NAPCAT_DIR/napcat.mjs" ]; then
@@ -43,7 +44,7 @@ fi
 
 # 3. Write NapCat OneBot config — WS client → our NoneBot2
 echo "[start] Writing NapCat OneBot config..."
-cp /app/bot/config/onebot11.json "$NAPCAT_CONFIG/onebot11.json"
+cp /app/bot/config/onebot11.json "$NAPCAT_CONFIG/onebot11.json" || { echo "[start] FATAL: failed to copy onebot11.json"; exit 1; }
 # 注入 OneBot token（使用 json.dumps 安全写入，避免 token 含特殊字符破坏 JSON）
 python3 -c "
 import os, json
@@ -54,12 +55,12 @@ data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN',
 with open(path, 'w') as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 "
-chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || echo "[start] WARNING: chown for napcat user failed" >&2
+chown -R napcat:napcat "$NAPCAT_DIR" 2>/dev/null || { echo "[start] WARNING: chown for napcat user failed" >&2; }
 
 # 3a. Ensure temp dirs exist and are writable by napcat user
 mkdir -p /app/.config/QQ/NapCat/temp
 mkdir -p /app/.cache
-chown -R napcat:napcat /app/.config/QQ /app/.cache 2>/dev/null || echo "[start] WARNING: chown for /app/.config/QQ or /app/.cache failed" >&2
+chown -R napcat:napcat /app/.config/QQ /app/.cache 2>/dev/null || { echo "[start] WARNING: chown for /app/.config/QQ or /app/.cache failed" >&2; }
 
 # 4. Anti-detection (from upstream napcat-docker entrypoint)
 # 在 HF Spaces 非特权容器中 mount --bind 不可用，跳过反检测相关操作
@@ -88,7 +89,7 @@ data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN',
 with open(path, 'w') as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 "
-                chown napcat:napcat "$target" 2>/dev/null || echo "[start] WARNING: chown for onebot11 config failed" >&2
+                chown napcat:napcat "$target" 2>/dev/null || { echo "[start] WARNING: chown for onebot11 config failed" >&2; }
                 echo "[start] Synced onebot11 config for account $qq"
             fi
         done

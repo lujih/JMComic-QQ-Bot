@@ -1,3 +1,4 @@
+import concurrent.futures
 import os
 import re
 from urllib.parse import urljoin
@@ -15,27 +16,38 @@ _TIMEOUT = 20
 FIELDS_FIRST = {'title', 'cover', 'date', 'studio', 'duration', 'favorites', 'director', 'series', 'rating'}
 FIELDS_UNION = {'actresses', 'categories', 'magnets'}
 
+def _search_with_timeout(fn, code, timeout):
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(fn, code)
+            return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        jm_log('jm.mv.search', f'{fn.__name__} 超时 ({timeout}s)，跳过')
+        return {}
+    except Exception as e:
+        jm_log('jm.mv.search', f'{fn.__name__} 异常', e)
+        return {}
+
 
 def search_video(query: str) -> dict:
     code = _normalize_code(query)
     result = {}
     seen_btih = set()
 
-    # 1. MissAV — 最佳元数据（导演/系列/分类/评分）
-    missav = search_missav(code)
-    if missav:
-        _merge_result(result, missav, seen_btih)
-
-    # 2. JavDB — 补充空缺字段
-    javdb = search_javdb(code)
-    if javdb:
-        _merge_result(result, javdb, seen_btih)
-
-    # 3. jav321 — 磁链兜底 + 全失败时的基本信息
-    jav321_data = _search_jav321(code)
-    if jav321_data:
-        _merge_result(result, jav321_data, seen_btih)
-
+    # 并行搜索三站，各站独立超时，互不阻塞
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        f_missav = pool.submit(_search_with_timeout, search_missav, code, 45)
+        f_javdb = pool.submit(_search_with_timeout, search_javdb, code, 45)
+        f_jav321 = pool.submit(_search_with_timeout, _search_jav321, code, 20)
+        try:
+            for future in concurrent.futures.as_completed(
+                [f_missav, f_javdb, f_jav321], timeout=55
+            ):
+                data = future.result()
+                if data:
+                    _merge_result(result, data, seen_btih)
+        except concurrent.futures.TimeoutError:
+            jm_log('jm.mv.search', '搜索最终超时 (55s)')
     return result
 
 

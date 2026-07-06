@@ -56,7 +56,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             page = 1
 
     try:
-        av_info = await run_sync(search_video, text, timeout=30)
+        av_info = await run_sync(search_video, text, timeout=120)
     except Exception as e:
         jm_log('jm.mv.search', '视频搜索异常', e)
         await mv_cmd.finish(f"❌ 搜索 {text.upper()} 时出现异常，请稍后再试")
@@ -79,12 +79,12 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
                 }, timeout=10),
                 timeout=30,
             )
-            resp.close()
             safe = re.sub(r'\W', '_', text)
             import uuid
             cover_path = str(Path(tempfile.gettempdir()) / f"jm_mv_cover_{safe}_{uuid.uuid4().hex[:8]}.jpg")
             with open(cover_path, "wb") as f:
                 f.write(resp.content)
+            resp.close()
             await mv_cmd.send(Message(f"[CQ:image,file=file://{cover_path}]"))
             asyncio.create_task(_delayed_rm(cover_path))
         except Exception as e:
@@ -158,7 +158,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         lines.append(f"💡 已过滤 {dead_count} 个死種（共 {len(results)} 个结果）")
 
     for i, r in enumerate(display, 1):
-        magnet = _clean_magnet(r['magnet'], text)
+        magnet = _clean_magnet(r['magnet'], text.upper())
         size = r.get('size', '')
         seeders = r.get('seeders', -1)
         leechers = r.get('leechers', 0)
