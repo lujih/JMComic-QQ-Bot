@@ -18,8 +18,8 @@ RUN pip install --no-cache-dir \
     "jmcomic @ git+https://github.com/lujih/JMComic-Crawler-Python.git" && \
     rm /tmp/requirements.txt
 
-# Install Scrapling browser dependencies (for StealthyFetcher Cloudflare bypass)
-RUN python -c "from scrapling.cli import install; install(['chromium'], standalone_mode=False)"
+# Install Chromium for Scrapling StealthyFetcher (Cloudflare bypass)
+RUN python -m playwright install chromium
 
 COPY . /app/bot
 WORKDIR /app/bot
