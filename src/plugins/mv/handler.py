@@ -119,6 +119,11 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     results = []
     seen_btih = set()
     queries = [text.strip(), re.sub(r'[-_\s]', '', text)]
+    # 如果输入无短横，反推标准格式（pred485 → PRED-485）
+    if '-' not in text and '_' not in text:
+        m = re.match(r'^(.+?)(\d+)$', text.strip())
+        if m:
+            queries.append(f"{m.group(1).upper()}-{m.group(2)}")
     for q in dict.fromkeys(queries):  # dedup 去重后遍历
         if not q:
             continue
