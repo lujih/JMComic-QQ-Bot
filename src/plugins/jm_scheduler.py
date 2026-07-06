@@ -67,8 +67,9 @@ async def daily_recommend():
 @scheduler.scheduled_job("interval", minutes=5, id="cleanup_stale_dirs")
 async def cleanup_stale_dirs():
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _cleanup_stale_dirs)
-    jm_log("jm.scheduler.cleanup", "定时清理下载缓存完成")
+    count = await loop.run_in_executor(None, _cleanup_stale_dirs)
+    if count:
+        jm_log("jm.scheduler.cleanup", f"定时清理下载缓存：删除了 {count} 个过期目录")
 
 
 

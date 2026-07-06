@@ -47,8 +47,9 @@ def _get_dl_tmp() -> Path:
         return Path(tempfile.gettempdir()) / "jm_dl"
 
 
-def _cleanup_stale_dirs():
+def _cleanup_stale_dirs() -> int:
     now = time.time()
+    total = 0
     for d in [_get_dl_tmp(), _TMP_DIR]:
         if not d.exists():
             continue
@@ -59,6 +60,7 @@ def _cleanup_stale_dirs():
                     continue
                 if now - entry.stat().st_mtime > _STALE_AGE:
                     shutil.rmtree(entry, ignore_errors=True)
+                    total += 1
 
             # 按数量清理：超过 _MAX_CACHE_ENTRIES 时删除最旧的
             entries = sorted(
@@ -67,9 +69,12 @@ def _cleanup_stale_dirs():
             )
             while len(entries) > _MAX_CACHE_ENTRIES:
                 shutil.rmtree(entries[0], ignore_errors=True)
+                total += 1
                 entries = entries[1:]
         except OSError as e:
             jm_log('jm.common.cleanup', '清理失败', e)
+
+    return total
 
 
 def _parse_format_flags(text: str):
