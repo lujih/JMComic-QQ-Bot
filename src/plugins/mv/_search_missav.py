@@ -4,7 +4,7 @@ import re
 from jmcomic import jm_log
 
 MISSAV_BASE = os.getenv("MISSAV_BASE_URL", "https://missav.com")
-_TIMEOUT = 45
+_TIMEOUT = 45000
 
 
 def _init_fetcher():
@@ -61,7 +61,7 @@ def search_missav(code: str) -> dict:
         if not info.get('title'):
             h1 = doc.css('h1')
             if h1:
-                info['title'] = h1[0].text.strip()
+                info['title'] = (h1[0].text or '').strip()
 
         if not info.get('title'):
             return {}
@@ -90,7 +90,7 @@ def search_missav(code: str) -> dict:
             if not containers:
                 continue
             for label_el in containers:
-                label = label_el.text.strip().lower()
+                label = (label_el.text or '').strip().lower()
 
                 dd = label_el.xpath('./following-sibling::dd[1]')
                 if not dd:
@@ -109,7 +109,7 @@ def search_missav(code: str) -> dict:
                         info['duration'] = text
                 elif any(k in label for k in ('maker', 'studio', 'メーカー', '製作')):
                     a = value_el.css('a')
-                    info['studio'] = a[0].text.strip() if a else text
+                    info['studio'] = (a[0].text or '').strip() if a else text
                 elif any(k in label for k in ('director', '監督', '导演')):
                     info['director'] = text
                 elif any(k in label for k in ('series', 'シリーズ')):
@@ -121,7 +121,7 @@ def search_missav(code: str) -> dict:
         for sel in ('a[href*="/tag/"]', 'a[href*="/genre/"]', 'a[href*="/category/"]',
                     '[class*="tag"] a', '[class*="genre"] a', '[class*="category"] a'):
             for a in doc.css(sel):
-                name = a.text.strip()
+                name = (a.text or '').strip()
                 if name and name not in seen_cat:
                     seen_cat.add(name)
                     categories.append(name)
@@ -134,7 +134,7 @@ def search_missav(code: str) -> dict:
         for sel in ('a[href*="/actress/"]', 'a[href*="/star/"]', 'a[href*="/actor/"]',
                     '[class*="actress"] a', '[class*="star"] a'):
             for a in doc.css(sel):
-                name = a.text.strip()
+                name = (a.text or '').strip()
                 if name and name not in seen_act:
                     seen_act.add(name)
                     actresses.append(name)

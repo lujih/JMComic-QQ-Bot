@@ -17,16 +17,18 @@ FIELDS_FIRST = {'title', 'cover', 'date', 'studio', 'duration', 'favorites', 'di
 FIELDS_UNION = {'actresses', 'categories', 'magnets'}
 
 def _search_with_timeout(fn, code, timeout):
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(fn, code)
-            return future.result(timeout=timeout)
+        future = pool.submit(fn, code)
+        return future.result(timeout=timeout)
     except concurrent.futures.TimeoutError:
         jm_log('jm.mv.search', f'{fn.__name__} 超时 ({timeout}s)，跳过')
         return {}
     except Exception as e:
         jm_log('jm.mv.search', f'{fn.__name__} 异常', e)
         return {}
+    finally:
+        pool.shutdown(wait=False)
 
 
 def search_video(query: str) -> dict:
@@ -35,7 +37,8 @@ def search_video(query: str) -> dict:
     seen_btih = set()
 
     # 并行搜索三站，各站独立超时，互不阻塞
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+    try:
         f_missav = pool.submit(_search_with_timeout, search_missav, code, 45)
         f_javdb = pool.submit(_search_with_timeout, search_javdb, code, 45)
         f_jav321 = pool.submit(_search_with_timeout, _search_jav321, code, 20)
@@ -48,6 +51,8 @@ def search_video(query: str) -> dict:
                     _merge_result(result, data, seen_btih)
         except concurrent.futures.TimeoutError:
             jm_log('jm.mv.search', '搜索最终超时 (55s)')
+    finally:
+        pool.shutdown(wait=False)
     return result
 
 

@@ -95,6 +95,7 @@ async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
             page = await asyncio.wait_for(rank_fn(1), timeout=60)
     except asyncio.TimeoutError:
         _clear_cooldown(cooldown_key)
+        jm_log('jm.handler', f'获取排行榜超时: {time_param}')
         await jm_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:
         jm_log('jm.handler', '获取排行榜失败', e)
@@ -124,6 +125,7 @@ async def _handle_random(bot: Bot, event: GroupMessageEvent):
             page = await asyncio.wait_for(cl.month_ranking(1), timeout=30)
     except asyncio.TimeoutError:
         _clear_cooldown(cooldown_key)
+        jm_log('jm.handler', '获取推荐超时')
         await jm_cmd.finish("❌ 查询超时，请稍后再试")
     except Exception as e:
         jm_log('jm.handler', '获取推荐失败', e)

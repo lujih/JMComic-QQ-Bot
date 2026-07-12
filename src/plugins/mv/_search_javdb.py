@@ -4,7 +4,7 @@ import re
 from jmcomic import jm_log
 
 JAVDB_BASE = os.getenv("JAVDB_BASE_URL", "https://javdb.com")
-_TIMEOUT = 45
+_TIMEOUT = 45000
 
 
 def _init_fetcher():
@@ -61,7 +61,7 @@ def search_javdb(code: str) -> dict:
         if not info.get('title'):
             h1 = doc.css('h1')
             if h1:
-                t = h1[0].text.strip()
+                t = (h1[0].text or '').strip()
                 # JavDB title often has code prefix like "MDBK-331 "
                 info['title'] = t
 
@@ -111,7 +111,7 @@ def search_javdb(code: str) -> dict:
                 dt = dd.xpath('./preceding-sibling::dt[1]')
                 if not dt:
                     continue
-                label = dt[0].text.strip().lower()
+                label = (dt[0].text or '').strip().lower()
 
                 if any(k in label for k in ('date', 'release', '配信', '発売', '發售')):
                     if re.search(r'\d{4}', text) and 'date' not in info:
@@ -121,12 +121,12 @@ def search_javdb(code: str) -> dict:
                         info['duration'] = text
                 elif any(k in label for k in ('maker', 'studio', 'メーカー', '製作', '廠商')):
                     a = dd.css('a')
-                    info['studio'] = a[0].text.strip() if a else text
+                    info['studio'] = (a[0].text or '').strip() if a else text
                 elif any(k in label for k in ('director', '監督', '导演')):
                     info['director'] = text
                 elif any(k in label for k in ('series', 'シリーズ', '系列')):
                     a = dd.css('a')
-                    info['series'] = a[0].text.strip() if a else text
+                    info['series'] = (a[0].text or '').strip() if a else text
                 elif any(k in label for k in ('rating', 'score', '評分', '评分')):
                     m = re.search(r'[\d.]+', text)
                     if m:
@@ -138,7 +138,7 @@ def search_javdb(code: str) -> dict:
         for sel in ('a[href*="/tags/"]', 'a[href*="/genre/"]', 'a[href*="/category/"]',
                     '.categories a', '.tags a', '[class*="tag"] a'):
             for a in doc.css(sel):
-                name = a.text.strip()
+                name = (a.text or '').strip()
                 if name and name not in seen_cat:
                     seen_cat.add(name)
                     categories.append(name)
@@ -151,7 +151,7 @@ def search_javdb(code: str) -> dict:
         for sel in ('a[href*="/actors/"]', 'a[href*="/star/"]', 'a[href*="/actress/"]',
                     '.actors a', '.stars a', '[class*="actor"] a', '[class*="star"] a'):
             for a in doc.css(sel):
-                name = a.text.strip()
+                name = (a.text or '').strip()
                 if name and name not in seen_act:
                     seen_act.add(name)
                     actresses.append(name)

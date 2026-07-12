@@ -8,7 +8,10 @@ from collections import OrderedDict
 from pathlib import Path
 
 from jmcomic import Feature, jm_log
+from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFailException
 from _common import run_sync
+from plugins.jm.cmd import jm_cmd
+from plugins.jm.progress import ProgressJmDownloader
 
 COOLDOWN_SECONDS = 15
 
@@ -43,7 +46,8 @@ def _get_dl_tmp() -> Path:
         from jm_option import get_option
         opt = get_option()
         return Path(opt.dir_rule.base_dir)
-    except Exception:
+    except Exception as e:
+        jm_log('jm.common', '配置加载失败，回退临时目录', e)
         return Path(tempfile.gettempdir()) / "jm_dl"
 
 
@@ -182,3 +186,92 @@ def _unlock_photo_by_pid(pid: str):
 def _unlock_album_by_aid(aid: str):
     with _processing_lock:
         _processing_albums.discard(aid)
+
+
+async def _download_entity(
+    bot, event,
+    entity_id: str,
+    cooldown_key: str,
+    *,
+    log_tag: str,
+    fetch_fn,
+    make_info_msg,
+    extra,
+    download_method_fn,
+    dler_tag: str,
+    dl_timeout: int,
+    ext: str,
+    fmt_name: str,
+):
+    out_path = _make_out_path(entity_id, ext)
+
+    usage = shutil.disk_usage(tempfile.gettempdir())
+    if usage.free < 500 * 1024 * 1024:
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
+
+    try:
+        from jm_option import get_option as _get_option
+        option = _get_option()
+        async with option.new_jm_async_client() as cl:
+            entity = await asyncio.wait_for(fetch_fn(cl, entity_id), timeout=60)
+    except asyncio.TimeoutError:
+        _clear_cooldown(cooldown_key)
+        jm_log(f'{log_tag}.detail', f'查询详情超时: {entity_id}')
+        await jm_cmd.finish("❌ 查询超时，请稍后再试")
+    except MissingAlbumPhotoException:
+        _clear_cooldown(cooldown_key)
+        jm_log(f'{log_tag}.detail', f'实体不存在: {entity_id}')
+        await jm_cmd.finish("❌ 实体不存在，请检查 ID")
+    except RequestRetryAllFailException:
+        _clear_cooldown(cooldown_key)
+        jm_log(f'{log_tag}.detail', f'查询详情失败: API 不可达 ({entity_id})')
+        await jm_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
+    except Exception as e:
+        _clear_cooldown(cooldown_key)
+        jm_log(f'{log_tag}.detail', '查询详情失败', e)
+        await jm_cmd.finish("❌ 查询失败")
+
+    await jm_cmd.send(make_info_msg(entity))
+
+    cancel_event = threading.Event()
+
+    def _dl():
+        if cancel_event.is_set():
+            return
+        dler = ProgressJmDownloader(option, cancel_event=cancel_event)
+        with dler:
+            dler.add_features(extra, dler_tag)
+            download_method_fn(dler, entity)
+            dler.raise_if_has_exception()
+
+    if _is_cache_valid(out_path):
+        from plugins.jm.upload import _upload_and_cleanup
+        await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name)
+        return
+
+    try:
+        async with _semaphore:
+            out_path.unlink(missing_ok=True)
+            await run_sync(_dl, timeout=dl_timeout)
+    except asyncio.TimeoutError:
+        cancel_event.set()
+        jm_log(f'{log_tag}.download', f'下载超时 ({entity_id})')
+        await asyncio.sleep(2)
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 下载超时，请稍后再试")
+    except Exception as e:
+        cancel_event.set()
+        jm_log(f'{log_tag}.download', f'下载 {entity_id} 失败', e)
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 下载失败，请稍后再试")
+
+    if not out_path.exists():
+        dl_dir = _get_dl_tmp() / entity_id
+        if dl_dir.exists():
+            shutil.rmtree(dl_dir, ignore_errors=True)
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish(f"❌ {fmt_name} 生成失败，文件未找到")
+
+    from plugins.jm.upload import _upload_and_cleanup
+    await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name)

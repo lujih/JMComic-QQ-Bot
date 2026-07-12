@@ -233,7 +233,9 @@ JMComic-QQ-Bot/
 ├── Dockerfile             # HF Spaces Docker 构建
 ├── start.sh               # 容器启动入口
 ├── .env                   # 环境变量（已 gitignore）
+├── .env.example           # 环境变量模板
 ├── pyproject.toml         # 项目配置
+├── requirements-dev.txt   # 开发依赖（可选）
 ├── LICENSE
 ├── README.md              # 本文件
 ├── AGENTS.md              # AI 助手上下文（架构/坑/编码规范）

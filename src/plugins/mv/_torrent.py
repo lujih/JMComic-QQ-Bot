@@ -44,6 +44,11 @@ def _parse_page(doc: Selector):
     if not table:
         return []
 
+    col_indices = _get_column_indices(table[0])
+    seeders_idx = leechers_idx = None
+    if col_indices:
+        seeders_idx, leechers_idx = col_indices
+
     results = []
     for row in table[0].css('tbody tr'):
         magnet_a = row.css('a[href^="magnet:"]')
@@ -59,26 +64,35 @@ def _parse_page(doc: Selector):
                 title_link = a
                 break
 
-        name = title_link.text.strip() if title_link else ''
+        name = (title_link.text or '').strip() if title_link else ''
         if not name:
             continue
 
         size = ''
         for td in row.css('td'):
-            text = td.text.strip()
+            text = (td.text or '').strip()
             if re.match(r'^\d+(?:\.\d+)?\s*(?:[KMGTP]i?B|B|bytes?)$', text):
                 size = text
                 break
 
         # Sukebei 列序: category | name | download | size | seeders | leechers | completed
         cols = row.css('td')
-        if len(cols) >= 3:
+        if seeders_idx is not None and leechers_idx is not None:
             try:
-                seeders = int(cols[-3].text.strip())
+                seeders = int((cols[seeders_idx].text or '0').strip())
             except (ValueError, IndexError):
                 seeders = 0
             try:
-                leechers = int(cols[-2].text.strip())
+                leechers = int((cols[leechers_idx].text or '0').strip())
+            except (ValueError, IndexError):
+                leechers = 0
+        elif len(cols) >= 3:
+            try:
+                seeders = int((cols[-3].text or '0').strip())
+            except (ValueError, IndexError):
+                seeders = 0
+            try:
+                leechers = int((cols[-2].text or '0').strip())
             except (ValueError, IndexError):
                 leechers = 0
         else:
@@ -94,6 +108,22 @@ def _parse_page(doc: Selector):
         })
 
     return results
+
+
+def _get_column_indices(table):
+    thead = table.css('thead tr th')
+    if not thead:
+        return None
+    seeders_idx = leechers_idx = None
+    for i, th in enumerate(thead):
+        text = (th.text or '').strip().lower()
+        if 'seeders' in text:
+            seeders_idx = i
+        elif 'leechers' in text:
+            leechers_idx = i
+    if seeders_idx is not None and leechers_idx is not None:
+        return seeders_idx, leechers_idx
+    return None
 
 
 def _has_next_page(doc: Selector) -> bool:

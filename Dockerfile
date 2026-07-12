@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir \
     rm /tmp/requirements.txt
 
 # Install Chromium for Scrapling StealthyFetcher (Cloudflare bypass)
-RUN python -m playwright install chromium
+RUN python -m playwright install-deps chromium && python -m playwright install chromium
 
 COPY . /app/bot
 WORKDIR /app/bot

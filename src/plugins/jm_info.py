@@ -35,10 +35,13 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         async with option.new_jm_async_client() as cl:
             album = await asyncio.wait_for(cl.get_album_detail(album_id), timeout=60)
     except asyncio.TimeoutError:
+        jm_log('jm.info', f'查询详情超时: {album_id}')
         await jmv_cmd.finish("❌ 查询超时，请稍后再试")
     except MissingAlbumPhotoException:
+        jm_log('jm.info', f'本子不存在: {album_id}')
         await jmv_cmd.finish("❌ 本子不存在，请检查 ID")
     except RequestRetryAllFailException:
+        jm_log('jm.info', f'查询详情失败: API 不可达 ({album_id})')
         await jmv_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         jm_log('jm.info', '查询详情失败', e)
@@ -94,8 +97,10 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         async with option.new_jm_async_client() as cl:
             page = await asyncio.wait_for(cl.search_site(text, 1), timeout=60)
     except asyncio.TimeoutError:
+        jm_log('jm.info', f'搜索超时: {text}')
         await jms_cmd.finish("❌ 搜索超时，请稍后再试")
     except RequestRetryAllFailException:
+        jm_log('jm.info', f'搜索失败: API 不可达 ({text})')
         await jms_cmd.finish("❌ 搜索失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         jm_log('jm.info', '搜索失败', e)

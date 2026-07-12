@@ -11,13 +11,8 @@ from jmcomic import jm_log
 
 from _common import run_sync
 from plugins.mv.cmd import mv_cmd
-from plugins.mv._search import search_video
+from plugins.mv._search import search_video, _btih
 from plugins.mv._torrent import search as search_torrent
-
-
-def _btih(magnet: str) -> str:
-    m = re.search(r'btih:([a-fA-F0-9]+)', magnet)
-    return m.group(1).lower() if m else magnet
 
 
 def _clean_magnet(magnet: str, short_id: str = "") -> str:
@@ -89,6 +84,8 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             asyncio.create_task(_delayed_rm(cover_path))
         except Exception as e:
             jm_log('jm.mv.cover', f'封面下载失败', e)
+            if cover_path and os.path.exists(cover_path):
+                os.remove(cover_path)
             await mv_cmd.send("❌ 封面下载失败")
     else:
         await mv_cmd.send("❌ 无封面图")

@@ -25,7 +25,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `.env` | `DRIVER=~fastapi`, `HOST=0.0.0.0`, `PORT=8080`, `COMMAND_START=["/"]`, `TARGET_GROUPS` |
 | `config/onebot11.json` | NapCat WS 客户端 → `ws://127.0.0.1:8080/onebot/v11/ws` |
 | `src/plugins/jm/` | `/jm` 命令包 — `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(二级上传fallback), `progress.py`(进度推送), `common.py`(公共工具) |
-| `src/plugins/mv/` | `/mv` 命令包 — `handler.py`(路由+磁链聚合), `_search.py`(三源 coordinator: MissAV→JavDB→jav321), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
+| `src/plugins/mv/` | `/mv` 命令包 — `handler.py`(路由+磁链聚合), `_search.py`(三源并行 coordinator), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
 | `src/plugins/jm_info.py` | `/jmv` 详情 + `/jms` 搜索 |
 | `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`） |
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
@@ -55,7 +55,9 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### jmcomic 同步 API 阻塞防护
 - 所有 jmcomic 调用必须经 `run_in_executor` + `wait_for(timeout)` 在 async 上下文中执行（NoneBot2 是 async event loop）
-- 并发控制：全局 `asyncio.Semaphore(3)` 控制并发下载数
+- MV 搜索并行化：`_search.py` 三站改为 `concurrent.futures.ThreadPoolExecutor(max_workers=3)` 并行执行，每站独立超时互不阻塞
+- MV seeders/leechers 取反修复：Sukebei 表 `cols[-3]=seeders`、`cols[-2]=leechers`
+- 并发控制：全局 `asyncio.Semaphore(2)` 控制并发下载数
 - `wait_for` 超时后底层线程无法取消（Python 线程语义），可能游离。已移除超时重试循环避免并发写
 - 进度展示：下载前一次性展示本子详情（`album.py` 直接发送），不再通过下载器回调逐章推送
 - `ProgressJmDownloader` 子类化 `JmDownloader`，仅覆盖 `before_photo` 用于检查取消信号（`cancel_event.is_set()` 时跳过该章节），无进度推送逻辑
@@ -69,6 +71,11 @@ pip install -e path/to/JMComic-Crawler-Python
 - 最初 `jm_scheduler.py` 直接调用 `create_option_by_file(str(OPTION_PATH))`，与 `jm_option.py` 缓存单例不一致
 - 修复：改为 `from jm_option import get_option`，与 `src/plugins/jm/` 包共享同一 option 实例
 
+### Option 缓存永不刷新
+- `jm_option.py` 的 `get_option()` 在第一次调用时缓存 `option_cache`，此后永不过期
+- 修改 `option.yml` 需重启 bot 才能生效
+- 未添加刷新接口（`clear_option_cache()`），按需可加
+
 ### PDF 图片破碎（`decode: false`）
 - 旧 `option.yml` 有 `decode: false`，webp 未解码直接存为 `.jpg`
 - img2pdf 插件读文件时当 JPEG 处理但实际内容为 WebP → PDF 内图片破碎
@@ -79,19 +86,20 @@ pip install -e path/to/JMComic-Crawler-Python
 - **self_id 过滤无效**：NapCat 回放消息的 `user_id` 与原始用户**完全相同**（不是 bot 自身 ID），`if event.user_id == int(bot.self_id)` 挡不住
 - 第一次尝试（`1fc6130`）加 `self_id` 过滤 → 未解决
 - 诊断日志（`1387cc5`）证实回放消息 user_id 冒充原始用户
-- **最终修复（`5ff9271`）**：`_unlock_album` 不立即清除处理锁，改为 `threading.Timer(15, _delayed_unlock)` 后台延迟 15s 释放
-  - NapCat 回放窗口约 12s，15s 延迟锁可覆盖
-  - 锁 key 与 user_id 绑定，NapCat 冒充也无法绕过
-  - Timer 在 `_unlock_album` 被 `finally` 调用时启动，不受上传线程的影响
+- Timer 延迟锁（`5ff9271`）：`_unlock_album` 改为 `threading.Timer(15, _delayed_unlock)` → 被 NapCat 回放时间波动突破
+- **最终根治**（`message_id` 去重 + 冷却兜底）：
+  - `_is_dup_message(event.message_id)`：`_seen_message_ids` 字典记录已处理的 `message_id`，毫秒级丢弃同 ID 重复（NapCat 回放 === 同一 message_id）
+  - 15s 冷却 `f"{user_id}:{album_id}"`：不同 ID 的回放（极少见）由冷却兜底
+  - 处理锁（`_processing_albums`）仅保护并发安全，`_unlock_album` **立即释放**，不再延迟
+  - 移除 `threading.Timer(15, _delayed_unlock)`，避免延迟锁阻塞正常用户
 
 ### Album 处理锁
-- 三重保护：album-level 处理锁 + cooldown 15s + Timer 延迟释放
-- 锁 key = `f"{user_id}:{album_id}"`，与 cooldown key 一致
-- `_try_lock_album` 检查 `_processing_albums` 集合，不阻塞直接返回 False 忽略重复
-- `_unlock_album` 改为 `threading.Timer(15, _delayed_unlock)` 延迟清除，覆盖 NapCat 回放窗口
-- `_delayed_unlock` 以 `threading.Lock` 保护 `_processing_albums` 集合的写操作
-- 正常用户再次请求同一本子需等 ~30s（15s 冷却 + 15s 处理锁延迟）
-- 不同用户的并发下载不受影响（锁 key 含 user_id）
+- 三层保护：处理锁 + message_id 去重 + cooldown
+- 处理锁 key = `album_id`（不含 user_id）：不同用户并发下载同一本子不互斥
+- 冷却 key = `f"{user_id}:{album_id}"`：仅限制同一用户对同一本子的频率
+- `_try_lock_album` 检查 `_processing_albums` 集合，立即返回 False 忽略重复
+- `_unlock_album` **立即**释放（无延迟），`try/finally` 保证
+- photo 下载使用独立前缀 `p:{photo_id}`，与 album 锁互不干扰
 
 ### 动态下载目录
 - 新增 `_get_dl_tmp()` 从 option 读取 `dir_rule.base_dir`，替代硬编码 `/tmp/jm_dl/`
@@ -120,7 +128,7 @@ pip install -e path/to/JMComic-Crawler-Python
 | `/jm help` | 查看全部命令 | `/jm help` |
 | `/jmv <ID>` | 查看本子详情 | `/jmv 438516` |
 | `/jms <关键词>` | 搜索本子 | `/jms 无修正` |
-| `/mv <番号>` | 搜索番号（三源合并: MissAV→JavDB→jav321）返回磁力链接 | `/mv SSNI-123` |
+| `/mv <番号>` | 搜索番号（三源并行: MissAV+JavDB+jav321 + Sukebei 磁力链）返回磁力链接 | `/mv SSNI-123` |
 | `/mv <番号> --page N` | 翻页 | `/mv SSNI-123 --page 2` |
 | 每日早 9:00 | 自动推送随机推荐 | 需 `.env` 配置 `TARGET_GROUPS` |
 
@@ -128,8 +136,8 @@ pip install -e path/to/JMComic-Crawler-Python
 - 每人每 album 15 秒冷却（仅下载，rank/random/help 无冷却），key = `f"{user_id}:{album_id}"`
 - 下载前一次性展示本子详情（名称/作者/章节/页数/标签），不再发逐章进度
 - 下载超时直接结束（无自动重试，避免线程竞态），jmcomic 内部已有 3 次重试
-- 30 分钟短时缓存（`/tmp/jm/{id}.ext`），定时每 30 分钟清理过期缓存和残留下载目录（`/tmp/jm_dl/`）
-- 下载后自动清理原始图片（`/tmp/jm_dl/{id}/`）
-- 每次 `/jm` 命令开头自动扫描 `/tmp/jm_dl/`，删除超过 30 分钟的残留目录（替代原 APScheduler 定时清理）
+- 30 分钟短时缓存（`/tmp/jm/{id}.ext`），APScheduler 每 5 分钟定时清理过期缓存和残留下载目录（`/tmp/jm_dl/`）
+- 清理同时处理目录和文件（不再仅限目录）
+- 下载后自动清理原始图片（`/tmp/jm_dl/{id}/`），通过 `finally` 块保证
 
 
