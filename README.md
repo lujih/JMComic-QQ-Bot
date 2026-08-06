@@ -103,11 +103,11 @@ git push
 
 ### 防休眠
 
-HF Spaces 免费版 48h 无活动会休眠，可选：
+HF Spaces 免费版 48h 无活动会休眠，本项目已内置双保险保活：
 
-- **升级实例**：CPU 升级（$7.2/月）→ 始终在线
-- **监控 Ping**：使用 [UptimeRobot](https://uptimerobot.com) 每 30 分钟 ping `https://你的用户名-jmcomic-qq-bot.hf.space`
-- **内部保活**：每次 `/jm` 命令自动清理过期残留，也有助于保持活跃
+- **GitHub Actions**：`.github/workflows/keepalive.yml` 每 30 分钟 ping 一次 Space URL（需将 workflow 推送到 GitHub 仓库）
+- **bot 内自 ping**：`jm_scheduler.py` 每 30 分钟请求一次 Space 公网入口（`SPACE_URL` 环境变量可覆盖，默认 `https://你的用户名-jmcomic-qq-bot.hf.space`），随 bot 自动运行，无需外部服务
+- **UptimeRobot（可选）**：每 30 分钟 ping `https://你的用户名-jmcomic-qq-bot.hf.space`
 
 ## 命令参考
 

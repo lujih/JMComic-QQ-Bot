@@ -28,7 +28,8 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `src/plugins/mv/` | `/mv` 命令包 — `cmd.py`(on_command 注册), `handler.py`(路由+磁链聚合), `_search.py`(三源并行 coordinator), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
 | `src/plugins/jm_info.py` | `/jmv` 详情 + `/jms` 搜索 |
 | `src/plugins/jm_comment.py` | `/jmc` 评论（`album_pagination`，需 jmcomic ≥2.7.3） |
-| `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`） |
+| `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`）+ 每 5 分钟缓存清理 + 每 30 分钟 Space 自 ping 防休眠 |
+| `.github/workflows/keepalive.yml` | GitHub Actions 每 30 分钟 ping HF Space URL 防休眠（与 bot 内自 ping 双保险） |
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
 | `option.yml` | jmcomic 配置（`impl: api`，无 plugin 段，格式由 Feature 传入） |
 | `Dockerfile` | 基于 `mlikiowa/napcat-docker` + Python venv + ffmpeg |
@@ -122,7 +123,8 @@ pip install -e path/to/JMComic-Crawler-Python
 - 首次部署需通过 NapCat WebUI 扫码登录 QQ 小号
 - HF Spaces 磁盘为临时存储，Space 重启后需重新扫码
 - 端口中：7860（HF Spaces 默认 → WebUI）、8080（内部 NoneBot WS 服务器）
-- 防休眠：UptimeRobot 每 30 分钟 ping Space URL
+- 防休眠：双保险 — GitHub Actions（`.github/workflows/keepalive.yml`，推 GitHub main 生效）+ bot 内 `space_keepalive` job（`SPACE_URL` 环境变量可覆盖默认 URL）；两者互备，任一失效 48h 后会休眠
+- 休眠后首次 ping 需冷启动（1-2 分钟），keepalive curl 已带 `--retry 3 --retry-delay 20` 兜底
 
 ## 命令
 

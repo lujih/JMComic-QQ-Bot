@@ -2,6 +2,8 @@ import os
 import asyncio
 import random
 
+import httpx
+
 from nonebot import require, get_bot
 
 require("nonebot_plugin_apscheduler")
@@ -70,6 +72,20 @@ async def cleanup_stale_dirs():
     count = await loop.run_in_executor(None, _cleanup_stale_dirs)
     if count:
         jm_log("jm.scheduler.cleanup", f"定时清理下载缓存：删除了 {count} 个过期目录")
+
+
+@scheduler.scheduled_job("interval", minutes=30, id="space_keepalive")
+async def space_keepalive():
+    """自 ping Space 公网入口，配合 GitHub Actions 防 HF 免费版 48h 无请求休眠"""
+    url = os.getenv("SPACE_URL", "https://cszx-jmcomic-qq-bot.hf.space").rstrip("/") + "/"
+    try:
+        loop = asyncio.get_running_loop()
+        resp = await loop.run_in_executor(
+            None, lambda: httpx.get(url, timeout=20, follow_redirects=True)
+        )
+        jm_log("jm.scheduler.keepalive", f"keepalive: {resp.status_code}")
+    except Exception as e:
+        jm_log("jm.scheduler.keepalive", f"keepalive failed: {e}")
 
 
 
