@@ -1,8 +1,10 @@
 from jmcomic import jm_log
 
+from plugins.jm.cmd import jm_cmd
 from plugins.jm.common import (
     _try_lock_album_by_aid,
     _unlock_album_by_aid,
+    _clear_cooldown,
     _download_entity,
     FORMAT_MAP,
     _DEFAULT_FMT,
@@ -12,8 +14,9 @@ from plugins.jm.common import (
 
 async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEFAULT_FMT):
     if not _try_lock_album_by_aid(album_id):
+        _clear_cooldown(cooldown_key)
         jm_log('jm.album', f'忽略重复请求 album_id={album_id}')
-        return
+        await jm_cmd.finish("⏳ 该本子正在下载中，请稍候再试")
     try:
         feature_cls, ext, fmt_name = FORMAT_MAP[fmt]
         extra = feature_cls(
@@ -42,6 +45,7 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
             dl_timeout=300,
             ext=ext,
             fmt_name=fmt_name,
+            cache_prefix='a',
         )
     finally:
         _unlock_album_by_aid(album_id)

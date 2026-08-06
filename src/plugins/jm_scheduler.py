@@ -77,7 +77,8 @@ async def cleanup_stale_dirs():
 @scheduler.scheduled_job("interval", hours=24, id="space_keepalive")
 async def space_keepalive():
     """自 ping Space 公网入口，配合 GitHub Actions 防 HF 免费版 48h 无请求休眠（24h < 48h）"""
-    url = os.getenv("SPACE_URL", "https://cszx-jmcomic-qq-bot.hf.space").rstrip("/") + "/"
+    # SPACE_URL 优先；否则用 HF 注入的 SPACE_HOST 推导，fork 部署无需改代码
+    url = os.getenv("SPACE_URL") or f"https://{os.getenv('SPACE_HOST', 'cszx-jmcomic-qq-bot.hf.space')}/"
     try:
         loop = asyncio.get_running_loop()
         resp = await loop.run_in_executor(

@@ -55,7 +55,7 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         f"📄 章节数: {len(album)}",
         f"🖼️ 总页数: {album.page_count or '?'}",
     ]
-    if album.description:
+    if album.description and album.description != 'None':
         desc = re.sub(r'\s+', ' ', album.description).strip()
         lines.append(f"📝 简介: {desc[:100]}{'…' if len(desc) > 100 else ''}")
     if album.comment_count:
@@ -69,8 +69,6 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         lines.append(f"👀 观看: {album.views}")
     if album.likes:
         lines.append(f"❤️ 点赞: {album.likes}")
-    if album.comment_count:
-        lines.append(f"💬 评论: {album.comment_count}")
 
     lines.append(f"🏷️ 标签: {tags_str}")
 

@@ -2,11 +2,12 @@ FROM mlikiowa/napcat-docker:v4.18.7
 
 RUN apt-get update && apt-get --fix-broken install -y && \
     apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-venv ffmpeg git \
+    python3 python3-pip python3-venv ffmpeg git tzdata \
     && rm -rf /var/lib/apt/lists/* && \
     python3 -c "import sys; assert sys.version_info >= (3,10), f'Python 3.10+ required, got {sys.version_info}'" && \
     ln -sf /usr/bin/python3 /usr/bin/python
 
+ENV TZ=Asia/Shanghai
 ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
@@ -15,11 +16,14 @@ COPY requirements.txt /tmp/
 RUN pip install --no-cache-dir \
     -r /tmp/requirements.txt && \
     pip install --no-cache-dir --force-reinstall --no-deps \
-    "jmcomic @ git+https://github.com/lujih/JMComic-Crawler-Python.git" && \
+    "jmcomic @ git+https://github.com/lujih/JMComic-Crawler-Python.git@e3c7e40" && \
     rm /tmp/requirements.txt
 
 # Install Chromium for Scrapling StealthyFetcher (Cloudflare bypass)
-RUN python -m playwright install-deps chromium && python -m playwright install chromium
+# PLAYWRIGHT_BROWSERS_PATH 固定到运行期路径（gosu napcat 的 HOME=/app），避免构建/运行路径错位
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" && \
+    python -m playwright install-deps chromium && python -m playwright install chromium
 
 COPY . /app/bot
 WORKDIR /app/bot
@@ -42,6 +46,6 @@ ENV FFMPEG_PATH=/usr/bin/ffmpeg
 EXPOSE 7860
 
 HEALTHCHECK --interval=120s --timeout=10s --start-period=120s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080', timeout=5)"
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860', timeout=5)"
 
 CMD ["bash", "/app/bot/start.sh"]

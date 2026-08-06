@@ -5,8 +5,9 @@ dir_rule:
 client:
   impl: api
   async_impl: async_api
-  cache: level_option
+  cache: false
   retry_times: 3
+  proxies: null
   postman:
     meta_data:
       timeout: 30

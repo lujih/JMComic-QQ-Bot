@@ -10,9 +10,13 @@ from nonebot.params import CommandArg
 from jmcomic import jm_log
 
 from _common import run_sync
+from plugins.jm.common import _check_cooldown, _clear_cooldown
 from plugins.mv.cmd import mv_cmd
 from plugins.mv._search import search_video, _btih
 from plugins.mv._torrent import search as search_torrent
+
+# 限制同时存活的 Chromium 数（每命令 MissAV/JavDB 各拉起 1 个 headless 浏览器）
+_mv_search_semaphore = asyncio.Semaphore(2)
 
 
 def _clean_magnet(magnet: str, short_id: str = "") -> str:
@@ -50,12 +54,20 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         if page < 1:
             page = 1
 
+    cooldown_key = f"{event.user_id}:mv:{text.upper()}"
+    remaining = _check_cooldown(cooldown_key)
+    if remaining:
+        await mv_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+
     try:
-        av_info = await run_sync(search_video, text, timeout=120)
+        async with _mv_search_semaphore:
+            av_info = await run_sync(search_video, text, timeout=120)
     except Exception as e:
+        _clear_cooldown(cooldown_key)
         jm_log('jm.mv.search', '视频搜索异常', e)
         await mv_cmd.finish(f"❌ 搜索 {text.upper()} 时出现异常，请稍后再试")
     if not av_info:
+        _clear_cooldown(cooldown_key)
         await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的信息")
 
     async def _delayed_rm(path: str, delay: int = 30):
@@ -67,19 +79,21 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
 
     cover_path = None
     if img_url := av_info.get('cover'):
+        resp = None
         try:
             resp = await run_sync(
                 lambda: httpx.get(img_url, headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                }, timeout=10),
+                }, timeout=10, follow_redirects=True),
                 timeout=30,
             )
+            if resp.status_code != 200:
+                raise ValueError(f"封面下载状态码 {resp.status_code}")
             safe = re.sub(r'\W', '_', text)
             import uuid
             cover_path = str(Path(tempfile.gettempdir()) / f"jm_mv_cover_{safe}_{uuid.uuid4().hex[:8]}.jpg")
             with open(cover_path, "wb") as f:
                 f.write(resp.content)
-            resp.close()
             await mv_cmd.send(Message(f"[CQ:image,file=file://{cover_path}]"))
             asyncio.create_task(_delayed_rm(cover_path))
         except Exception as e:
@@ -87,6 +101,9 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             if cover_path and os.path.exists(cover_path):
                 os.remove(cover_path)
             await mv_cmd.send("❌ 封面下载失败")
+        finally:
+            if resp is not None:
+                resp.close()
     else:
         await mv_cmd.send("❌ 无封面图")
 
@@ -111,7 +128,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     await mv_cmd.send("\n".join(meta_lines))
 
     # Message 3: 磁链汇总
-    # 多格式搜索 sukebei：先搜原始（PRED-485），再搜去分隔（pred485），合并去重
+    # 多格式搜索 sukebei：原始（PRED-485）/去分隔（pred485）/无短横时反推标准格式，并行搜索后按 BTIH 去重合并
     has_next = False
     results = []
     seen_btih = set()
@@ -121,20 +138,24 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         m = re.match(r'^(.+?)(\d+)$', text.strip())
         if m:
             queries.append(f"{m.group(1).upper()}-{m.group(2)}")
-    for q in dict.fromkeys(queries):  # dedup 去重后遍历
+
+    async def _search_one(q):
         if not q:
-            continue
+            return [], False
         try:
-            r, hn = await run_sync(search_torrent, q, page, timeout=30)
-            for item in r:
-                b = _btih(item['magnet'])
-                if b and b not in seen_btih:
-                    seen_btih.add(b)
-                    results.append(item)
-            if hn:
-                has_next = True
+            return await run_sync(search_torrent, q, page, timeout=30)
         except Exception as e:
             jm_log('jm.mv.torrent', f'sukebei 搜索失败 (q={q})', e)
+            return [], False
+
+    for r, hn in await asyncio.gather(*[_search_one(q) for q in dict.fromkeys(queries)]):
+        for item in r:
+            b = _btih(item['magnet'])
+            if b and b not in seen_btih:
+                seen_btih.add(b)
+                results.append(item)
+        if hn:
+            has_next = True
 
     # 合并 MissAV + JavDB + jav321 的磁链（BTIH 去重）
     extra = av_info.get('magnets', [])
@@ -145,6 +166,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             results.append({'magnet': m['magnet'], 'seeders': -1})
 
     if not results:
+        _clear_cooldown(cooldown_key)
         await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的磁力链接")
 
     # 过滤死種：tracker seeders=0 排除，全死種时降级显示全部

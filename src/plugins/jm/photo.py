@@ -1,8 +1,10 @@
 from jmcomic import Feature, jm_log
 
+from plugins.jm.cmd import jm_cmd
 from plugins.jm.common import (
     _try_lock_photo_by_pid,
     _unlock_photo_by_pid,
+    _clear_cooldown,
     _download_entity,
     _TMP_DIR,
 )
@@ -10,8 +12,9 @@ from plugins.jm.common import (
 
 async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
     if not _try_lock_photo_by_pid(photo_id):
+        _clear_cooldown(cooldown_key)
         jm_log('jm.photo', f'忽略重复请求 p{photo_id}')
-        return
+        await jm_cmd.finish("⏳ 该章节正在下载中，请稍候再试")
     try:
         extra = Feature.export_pdf(pdf_dir=str(_TMP_DIR), filename_rule='Pid')
 
@@ -34,6 +37,7 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
             dl_timeout=120,
             ext='pdf',
             fmt_name='PDF',
+            cache_prefix='p',
         )
     finally:
         _unlock_photo_by_pid(photo_id)

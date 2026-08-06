@@ -10,7 +10,6 @@ _TIMEOUT = 45000
 def _init_fetcher():
     try:
         from scrapling.fetchers import StealthyFetcher
-        StealthyFetcher.adaptive = True
         return StealthyFetcher
     except ImportError:
         jm_log('jm.mv.javdb', "StealthyFetcher 不可用，无法请求 JavDB")
@@ -43,6 +42,7 @@ def search_javdb(code: str) -> dict:
             url,
             headless=True,
             solve_cloudflare=True,
+            retries=1,
             timeout=_TIMEOUT,
             network_idle=False,
         )

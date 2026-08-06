@@ -59,9 +59,9 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     if text.startswith("p"):
         if fmt != _DEFAULT_FMT:
             await jm_cmd.finish("单章下载仅支持 PDF 格式，请移除 --zip/--longimg")
-        photo_id = text[1:]
-        if not photo_id.isdigit():
+        if not re.fullmatch(r"p\d+", text):
             await jm_cmd.finish("格式: /jm p<章节ID>\n例如: /jm p350234")
+        photo_id = text[1:]
         cooldown_key = f"{event.user_id}:p{photo_id}"
         remaining = _check_cooldown(cooldown_key)
         if remaining:
@@ -69,11 +69,10 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         await _download_photo(bot, event, photo_id, cooldown_key)
         return
 
-    match = re.search(r"\d+", text)
-    if not match:
-        await jm_cmd.finish("格式: /jm <本子ID>\n例如: /jm 438516")
+    if not re.fullmatch(r"\d+", text):
+        await jm_cmd.finish("格式: /jm <本子ID>\n例如: /jm 438516\n更多: /jm help")
 
-    album_id = match.group()
+    album_id = text
     cooldown_key = f"{event.user_id}:{album_id}"
     remaining = _check_cooldown(cooldown_key)
     if remaining:

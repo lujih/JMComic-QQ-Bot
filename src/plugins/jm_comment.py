@@ -67,7 +67,7 @@ async def handle_jmc(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     m2 = re.search(r"(\d+)", rest)
     page = max(int(m2.group()), 1) if m2 else 1
 
-    cooldown_key = f"{event.user_id}:jmc:{album_id}"
+    cooldown_key = f"{event.user_id}:jmc:{album_id}:{page}"
     remaining = _check_cooldown(cooldown_key)
     if remaining:
         await jmc_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")

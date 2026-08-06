@@ -21,7 +21,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 
 | 文件 | 作用 |
 |---|---|---|
-| `bot.py` | NoneBot2 入口，显式注册 `OnebotV11Adapter` |
+| `bot.py` | NoneBot2 入口，显式 `load_plugin("plugins.jm"/"plugins.mv"/...)` 加载（**勿用 `load_plugins("src/plugins")`**，见双命名空间坑） |
 | `.env` | `DRIVER=~fastapi`, `HOST=0.0.0.0`, `PORT=8080`, `COMMAND_START=["/"]`, `TARGET_GROUPS` |
 | `config/onebot11.json` | NapCat WS 客户端 → `ws://127.0.0.1:8080/onebot/v11/ws` |
 | `src/plugins/jm/` | `/jm` 命令包 — `cmd.py`(on_command 注册), `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(二级上传fallback), `progress.py`(取消信号下载器), `common.py`(公共工具+锁/冷却/缓存) |
@@ -31,7 +31,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`）+ 每 5 分钟缓存清理 + 每 24 小时 Space 自 ping 防休眠 |
 | `.github/workflows/keepalive.yml` | GitHub Actions 每 24 小时 ping HF Space URL 防休眠（与 bot 内自 ping 双保险） |
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
-| `option.yml` | jmcomic 配置（`impl: api`，无 plugin 段，格式由 Feature 传入） |
+| `option.yml` | jmcomic 配置（`impl: api` + `cache: false` + `proxies: null`，无 plugin 段，格式由 Feature 传入） |
 | `Dockerfile` | 基于 `mlikiowa/napcat-docker` + Python venv + ffmpeg |
 | `start.sh` | 容器入口：配置写入 → NapCat 解包 → Xvfb → QQ 后台 → NoneBot 前台 |
 
@@ -48,16 +48,23 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ## 已踩的坑
 
+### 双命名空间导致 handler 双注册（重复执行的隐藏根因）
+- `load_plugins("src/plugins")` 以 CWD 为基准生成模块名 `src.plugins.jm`，而包内 `from plugins.jm.xxx import ...` 绝对导入触发第二个命名空间 `plugins.jm` → `handler.py` 执行两次 → 同一 matcher 上注册两个 handler
+- 下载成功路径不 finish，handler#2 完整重跑 → 重复上传（NapCat 回吐只是另一条路径）
+- 修复：`bot.py` 显式 `nonebot.load_plugin(f"plugins.{name}")` 循环加载，与包内绝对导入命名空间一致
+- 单文件插件（jm_info/jm_comment/jm_scheduler）内的 `from plugins.jm.common import ...` 依赖加载顺序，勿改
+
 ### Dockerfile / start.sh
 - 基镜像 `mlikiowa/napcat-docker` 有 `ENTRYPOINT ["bash", "entrypoint.sh"]`，必须用 `ENTRYPOINT []` 清掉；镜像固定 `:v4.18.7`，勿改回 `:latest`（上游漂移会破坏构建）
 - `NapCat.Shell.zip` 在 Dockerfile 构建时已解压到 `/app/napcat/`，`start.sh` 仅在 `napcat.mjs` 缺失时兜底解压
-- Docker 中实际运行的 jmcomic 不是 `requirements.txt` 的版本：`pip install --force-reinstall --no-deps "jmcomic @ git+https://github.com/lujih/JMComic-Crawler-Python.git"`（获取 P0 修复）。改 jmcomic 版本/依赖须同步改 Dockerfile
-- StealthyFetcher 需 Chromium：`python -m playwright install-deps chromium && python -m playwright install chromium`（`scrapling.cli.install` 不支持位置参数）
+- Docker 中实际运行的 jmcomic 不是 `requirements.txt` 的版本：`pip install --force-reinstall --no-deps "jmcomic @ git+...@e3c7e40"`（钉 commit，获取 P0 修复且保证可复现；升级 jmcomic 须改 commit 并跑上游 tests）
+- StealthyFetcher 需 Chromium：`ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright` 后 `python -m playwright install-deps chromium && python -m playwright install chromium`（路径必须与运行期一致——gosu napcat 的 HOME=/app，构建期默认 HOME=/root 会错位导致浏览器找不到）
 - `nonebot2` 须安装 `[fastapi]` extras（纯包缺 fastapi）
 - `/app/.config/QQ/NapCat/temp` 权限：需 `mkdir + chown napcat:napcat`
 - `FFMPEG_PATH` 声明后须 `apt-get install ffmpeg`
-- `start.sh` 用 `set -u` 但**不用** `set -e`（前后台进程并存）；`WEBUI_TOKEN`/`ONEBOT_TOKEN` 写入 NapCat 配置后即 `unset` 减少子进程暴露；SIGTERM trap 负责优雅关闭；`sync_onebot11_config` 后台循环按账号同步配置
-- 容器 HEALTHCHECK 探测 `http://127.0.0.1:8080`（NoneBot 端口），不是 7860
+- `start.sh` 用 `set -u` 但**不用** `set -e`（前后台进程并存）；`WEBUI_TOKEN` 写入后即 `unset`；`ONEBOT_TOKEN` 先备份到 `ONEBOT_TOKEN_BACKUP` 再 unset，供配置注入使用（NoneBot 适配器读 `ONEBOT_ACCESS_TOKEN`，勿用旧名 `ONEBOT_TOKEN`）；SIGTERM trap 负责优雅关闭；`sync_onebot11_config` 后台循环按账号同步配置
+- `ENV TZ=Asia/Shanghai`（否则 cron 按 UTC，每日推荐会在北京 17:00 推送）
+- 容器 HEALTHCHECK 探测 `http://127.0.0.1:7860`（NapCat WebUI），不是 8080（NoneBot 无根路由，探测会恒 404）
 
 ### jmcomic 同步 API 阻塞防护
 - jmcomic 是同步库而 NoneBot2 是 async event loop：同步调用（MV `search_video`、httpx 请求）必须经 `run_sync`（`src/_common.py`，默认 180s）+ `wait_for(timeout)`
@@ -66,7 +73,8 @@ pip install -e path/to/JMComic-Crawler-Python
 - `JmAsyncDownloader` 继承 `BaseDownloader`，`add_features`/`raise_if_has_exception` 均在基类，Feature 导出经 `_run_in_decode_pool(super().after_album)` 照常触发；`async with dler` 创建独立 async client（不再共享 option 的同步 client）
 - MV 搜索并行化：`_search.py` 三站改为 `concurrent.futures.ThreadPoolExecutor(max_workers=3)` 并行执行，每站独立超时互不阻塞
 - MV seeders/leechers 取反修复：Sukebei 表 `cols[-3]=seeders`、`cols[-2]=leechers`
-- MV 磁链搜索多格式兜底（`mv/handler.py`）：先搜原始（`PRED-485`）再搜去分隔（`pred485`），无短横输入时反推标准格式，结果按 BTIH 去重合并
+- MV 磁链搜索多格式兜底（`mv/handler.py`）：先搜原始（`PRED-485`）再搜去分隔（`pred485`），无短横输入时反推标准格式，三 query 并行（`asyncio.gather`），结果按 BTIH 去重合并
+- MV 资源控制：全局 `_mv_search_semaphore = Semaphore(2)` 限制并发 Chromium；每用户 15s 冷却 key `f"{user_id}:mv:{番号}"`；StealthyFetcher fetch 必须传 `retries=1`（默认 3 次会让超时弃置后的孤儿浏览器多活 ~2 分钟）；**勿设 `adaptive=True`**（无效配置，每次 fetch 还会建 sqlite storage 连接写库）
 - 并发控制：全局 `asyncio.Semaphore(2)` 控制并发下载数
 - `wait_for` 超时后底层线程无法取消（Python 线程语义），可能游离。已移除超时重试循环避免并发写
 - 进度展示：下载前一次性展示本子详情（`album.py` 直接发送），不再通过下载器回调逐章推送
@@ -145,16 +153,20 @@ pip install -e path/to/JMComic-Crawler-Python
 | 每日早 9:00 | 自动推送随机推荐 | 需 `.env` 配置 `TARGET_GROUPS` |
 
 ### 限制与行为
-- 15 秒冷却 key = `f"{user_id}:{album_id}"`；单章 `p{photo_id}`、`rank:{period}`、`random`、`jmc:{album_id}` 各自独立 key（help 无冷却）
+- 15 秒冷却 key = `f"{user_id}:{album_id}"`；单章 `p{photo_id}`、`rank:{period}`、`random`、`jmc:{album_id}:{page}`、`mv:{番号}` 各自独立 key（help 无冷却；jmc 冷却含页码，否则翻页被冷却阻断）
+- 缓存文件带命名空间前缀：album=`a{id}.{ext}`、photo=`p{id}.pdf`（`_make_out_path` 由 `cache_prefix` 参数控制），避免 photo_id 与 album_id 数字碰撞互串；上传显示名仍为 `JM{id}.{ext}`
+- `_is_cache_valid` 校验 `st_size > 0`（防 0 字节坏 PDF 被缓存命中）；下载失败/超时分支先清 `out_path` + `dl_dir` 再 finish；下载前也清残留 dl_dir（防孤儿线程旧文件被 `download.cache` 误判跳过）
+- message_id 去重 TTL 600s（覆盖 300s 下载 + 120s 上传最长窗口）；处理锁冲突时 `finish("正在下载中")` 并清冷却，不再静默丢弃
+- `/jm` 参数严格校验：仅接受 `p\d+` / 纯数字 / rank / random / help（`/jmx 438516`、`/jm 123 456` 一律格式提示，防误触发下载）
 - 下载前一次性展示本子详情（名称/作者/章节/页数/标签），不再发逐章进度
 - 下载超时直接结束（无自动重试，避免竞态），jmcomic 内部已有 3 次重试；async 下载器超时后协程被取消，无残留线程
-- 30 分钟短时缓存（`/tmp/jm/{id}.ext`），APScheduler 每 5 分钟定时清理过期缓存和残留下载目录（`/tmp/jm_dl/`）
+- 30 分钟短时缓存（`/tmp/jm/{a|p}{id}.ext`），APScheduler 每 5 分钟定时清理过期缓存和残留下载目录（`/tmp/jm_dl/`）
 - 清理同时处理目录和文件（不再仅限目录）
-- 下载后自动清理原始图片（`/tmp/jm_dl/{id}/`），通过 `finally` 块保证
+- 下载后自动清理原始图片（`/tmp/jm_dl/{id}/`），通过 `finally` 块保证（`rmtree` 已移入 executor，不再阻塞事件循环）
 
 ## 代码约定
 
-- 命令注册与路由分离：`cmd.py` 定义 `on_command`（`priority=10`, `rule=is_type(GroupMessageEvent)`），`handler.py` 处理逻辑，`__init__.py` 里 `from . import handler` 完成装载；`bot.py` 用 `nonebot.load_plugins("src/plugins")` 加载
+- 命令注册与路由分离：`cmd.py` 定义 `on_command`（`priority=10`, `rule=is_type(GroupMessageEvent)`），`handler.py` 处理逻辑，`__init__.py` 里 `from . import handler` 完成装载；`bot.py` 用 `nonebot.load_plugin(f"plugins.{name}")` 循环加载（勿用 `load_plugins("src/plugins")`，见双命名空间坑）
 - 所有群命令只响应 `GroupMessageEvent`（`is_type` 规则）
 - `jm_info.py` / `jm_comment.py` / `jm_scheduler.py` 是单文件插件，直接在文件内 `on_command` / `scheduler.scheduled_job`，无 cmd.py
 - 无测试套件、无 linter/CI 配置；验证手段为 `python -m py_compile` + 本地 `python bot.py` 启动

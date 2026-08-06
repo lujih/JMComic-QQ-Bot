@@ -73,11 +73,12 @@ git push
 在 Space → **Settings** → **Repository Secrets** 添加：
 
 | 变量 | 说明 | 默认值 |
-|---|---|---|---|
-| `ONEBOT_TOKEN` | NapCat ↔ NoneBot WS 认证 Token | 留空（不启用认证） |
+|---|---|---|
+| `ONEBOT_ACCESS_TOKEN` | NapCat ↔ NoneBot WS 认证 Token | 留空（不启用认证） |
 | `TARGET_GROUPS` | 每日推荐推送的目标群号 | 留空（不推送） |
 | `WEBUI_TOKEN` | NapCat WebUI 管理密码 | `jmcomic` |
 | `ACCOUNT` | 指定 QQ 账号自动登录（可选） | 留空（手动扫码） |
+| `SPACE_URL` | 防休眠自 ping 的 Space URL（可选，默认由 HF `SPACE_HOST` 推导） | 自动推导 |
 
 或在 `.env` 文件中配置后随代码推送。
 
@@ -153,7 +154,7 @@ HF Spaces 免费版 48h 无活动会休眠，本项目已内置双保险保活�
 | `DRIVER` | NoneBot2 驱动（必须 `~fastapi`） |
 | `HOST` / `PORT` | WS 服务器监听地址 |
 | `COMMAND_START` | 命令前缀（默认 `["/"]`） |
-| `ONEBOT_TOKEN` | WS 连接认证 Token |
+| `ONEBOT_ACCESS_TOKEN` | WS 连接认证 Token |
 | `TARGET_GROUPS` | 每日推荐推送群号，逗号分隔（留空则不推送） |
 
 ### `option.yml`（jmcomic 下载配置）
@@ -215,7 +216,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 |---|---|---|
 | Space 构建失败 | Docker build 超时 / OOM | 重试构建，检查 Builder Logs |
 | 打开 Space 看不到 WebUI | 容器未就绪 / Python 未启动 | 等 2 分钟刷新，检查 Container Logs |
-| WebUI 的 WS 客户端「未连接」 | ONEBOT_TOKEN 不匹配 | 确认 `.env` 与 `config/onebot11.json` token 一致 |
+| WebUI 的 WS 客户端「未连接」 | ONEBOT_ACCESS_TOKEN 不匹配 | 确认 `.env` 与 `config/onebot11.json` token 一致 |
 | QQ 扫码后闪退 | 账号风控 / NTQQ 兼容性 | 换一个小号，或更新 napcat-docker 镜像版本 |
 | `/jm` 命令返回超时 | 禁漫API 请求超时 | HF 海外节点正常，无需代理；若持续可重试 |
 | `/jm` 返回「文件未找到」 | 生成阶段错误 | 检查 Container Logs 中 jmcomic 报错 |

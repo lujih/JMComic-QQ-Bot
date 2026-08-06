@@ -31,8 +31,12 @@ cat > "$NAPCAT_CONFIG/webui.json" << EOF
 }
 EOF
 # Token 已写入配置文件，从环境变量中移除，减少子进程暴露面
+# ONEBOT 侧：NoneBot 适配器读 ONEBOT_ACCESS_TOKEN，NapCat 配置注入同一值；先备份再 unset
 unset WEBUI_TOKEN
+ONEBOT_TOKEN_BACKUP="${ONEBOT_ACCESS_TOKEN:-${ONEBOT_TOKEN:-}}"
 unset ONEBOT_TOKEN
+unset ONEBOT_ACCESS_TOKEN
+export ONEBOT_TOKEN_BACKUP
 
 # 2. NapCat Shell 已在 Dockerfile 构建时解压，如有缺失则运行时补充
 if [ ! -f "$NAPCAT_DIR/napcat.mjs" ]; then
@@ -51,7 +55,7 @@ import os, json
 path = '$NAPCAT_CONFIG/onebot11.json'
 with open(path, 'r') as f:
     data = json.load(f)
-data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN', '')
+data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN_BACKUP', '')
 with open(path, 'w') as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 "
@@ -85,7 +89,7 @@ import os, json
 path = '$target'
 with open(path, 'r') as f:
     data = json.load(f)
-data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN', '')
+data['network']['websocketClients'][0]['token'] = os.environ.get('ONEBOT_TOKEN_BACKUP', '')
 with open(path, 'w') as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 "

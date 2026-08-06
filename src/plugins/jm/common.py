@@ -26,7 +26,7 @@ _cooldown_lock = threading.Lock()
 _MAX_COOLDOWN_ENTRIES = 10000
 _STALE_AGE = 1800
 _MAX_CACHE_ENTRIES = 50
-_SEEN_TTL = 120
+_SEEN_TTL = 600
 _MAX_SEEN_IDS = 1000
 
 _semaphore = asyncio.Semaphore(2)
@@ -102,12 +102,17 @@ def _parse_format_flags(text: str):
 
 def _is_cache_valid(path: Path, max_age=_STALE_AGE):
     try:
-        return path.exists() and time.time() - path.stat().st_mtime < max_age
+        return (
+            path.exists()
+            and path.stat().st_size > 0
+            and time.time() - path.stat().st_mtime < max_age
+        )
     except OSError:
         return False
 
 
 def _make_out_path(id_str: str, ext: str) -> Path:
+    # id_str 由调用方带命名空间前缀（album: a{id}，photo: p{id}），避免数字碰撞互串
     return _TMP_DIR / f"{id_str}.{ext}"
 
 
@@ -205,8 +210,9 @@ async def _download_entity(
     dl_timeout: int,
     ext: str,
     fmt_name: str,
+    cache_prefix: str,
 ):
-    out_path = _make_out_path(entity_id, ext)
+    out_path = _make_out_path(f"{cache_prefix}{entity_id}", ext)
 
     usage = shutil.disk_usage(tempfile.gettempdir())
     if usage.free < 500 * 1024 * 1024:
@@ -253,18 +259,24 @@ async def _download_entity(
         await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name)
         return
 
+    dl_dir = _get_dl_tmp() / entity_id
     try:
         async with _semaphore:
             out_path.unlink(missing_ok=True)
+            if dl_dir.exists():
+                shutil.rmtree(dl_dir, ignore_errors=True)
             await asyncio.wait_for(_dl(), timeout=dl_timeout)
     except asyncio.TimeoutError:
         cancel_event.set()
+        out_path.unlink(missing_ok=True)
+        shutil.rmtree(dl_dir, ignore_errors=True)
         jm_log(f'{log_tag}.download', f'下载超时 ({entity_id})')
-        await asyncio.sleep(2)
         _clear_cooldown(cooldown_key)
         await jm_cmd.finish("❌ 下载超时，请稍后再试")
     except Exception as e:
         cancel_event.set()
+        out_path.unlink(missing_ok=True)
+        shutil.rmtree(dl_dir, ignore_errors=True)
         jm_log(f'{log_tag}.download', f'下载 {entity_id} 失败', e)
         _clear_cooldown(cooldown_key)
         await jm_cmd.finish("❌ 下载失败，请稍后再试")
