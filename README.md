@@ -25,6 +25,7 @@ pinned: false
 | `/jm random` | 随机推荐本子 |
 | `/jmv <ID>` | 查看本子详情 |
 | `/jms <关键词>` | 搜索本子 |
+| `/jmc <ID> [页码]` | 查看本子评论（每页 10 条） |
 | `/mv <番号>` | 搜索番号返回磁力链接（MissAV+JavDB+jav321 三源合并 + Sukebei 磁力链） |
 | 每日 9:00 自动推送 | 随机推荐到已配置群 |
 
@@ -125,6 +126,7 @@ HF Spaces 免费版 48h 无活动会休眠，可选：
 |---|---|---|
 | `/jmv <ID>` | 查看本子详情 | `/jmv 438516` |
 | `/jms <关键词>` | 搜索本子 | `/jms 无修正` |
+| `/jmc <ID> [页码]` | 查看本子评论 | `/jmc 438516` `/jmc 438516 2` |
 | `/mv <番号>` | 搜索番号并返回磁力链接 | `/mv SSNI-123` |
 | `/mv <番号> --page N` | 翻页 | `/mv SSNI-123 --page 2` |
 
@@ -250,6 +252,7 @@ JMComic-QQ-Bot/
 │   └── plugins/
 │       ├── __init__.py
 │       ├── jm_info.py    # 查询命令（/jmv /jms）
+│       ├── jm_comment.py # 评论命令（/jmc）
 │       ├── jm_scheduler.py # 定时推荐
 │       ├── jm/           # /jm 命令包
 │       │   ├── __init__.py

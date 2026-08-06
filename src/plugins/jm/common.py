@@ -9,7 +9,6 @@ from pathlib import Path
 
 from jmcomic import Feature, jm_log
 from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFailException
-from _common import run_sync
 from plugins.jm.cmd import jm_cmd
 from plugins.jm.progress import ProgressJmDownloader
 
@@ -36,6 +35,7 @@ _processing_lock = threading.Lock()
 
 _seen_message_ids: dict[int, float] = {}
 _LOCK_SEEN_IDS = threading.Lock()
+_last_seen_cleanup = 0.0
 
 _TMP_DIR = Path(tempfile.gettempdir()) / "jm"
 _TMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -122,6 +122,7 @@ HELP_TEXT = (
     "/jm help               显示本帮助\n"
     "/jmv <ID>               查看本子详情\n"
     "/jms <关键词>           搜索本子\n"
+    "/jmc <ID> [页码]        查看本子评论\n"
     "/mv <番号>              搜索番号并返回磁力链接\n"
     "每日早 9:00             自动推送随机推荐到群"
 )
@@ -149,15 +150,17 @@ def _clear_cooldown(key: str):
 
 
 def _is_dup_message(message_id: int) -> bool:
+    global _last_seen_cleanup
     now = time.time()
     with _LOCK_SEEN_IDS:
         if message_id in _seen_message_ids:
             return True
         _seen_message_ids[message_id] = now
-        if len(_seen_message_ids) > _MAX_SEEN_IDS:
+        if len(_seen_message_ids) > _MAX_SEEN_IDS or now - _last_seen_cleanup > _SEEN_TTL:
             stale = [k for k, v in _seen_message_ids.items() if now - v > _SEEN_TTL]
             for k in stale:
                 del _seen_message_ids[k]
+            _last_seen_cleanup = now
         return False
 
 
@@ -236,13 +239,13 @@ async def _download_entity(
 
     cancel_event = threading.Event()
 
-    def _dl():
+    async def _dl():
         if cancel_event.is_set():
             return
         dler = ProgressJmDownloader(option, cancel_event=cancel_event)
-        with dler:
+        async with dler:
             dler.add_features(extra, dler_tag)
-            download_method_fn(dler, entity)
+            await download_method_fn(dler, entity)
             dler.raise_if_has_exception()
 
     if _is_cache_valid(out_path):
@@ -253,7 +256,7 @@ async def _download_entity(
     try:
         async with _semaphore:
             out_path.unlink(missing_ok=True)
-            await run_sync(_dl, timeout=dl_timeout)
+            await asyncio.wait_for(_dl(), timeout=dl_timeout)
     except asyncio.TimeoutError:
         cancel_event.set()
         jm_log(f'{log_tag}.download', f'下载超时 ({entity_id})')

@@ -29,12 +29,15 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
                 f"{tags_str}"
             )
 
+        async def _dl_by_album(dler, ent):
+            await dler.download_by_album_detail(ent)
+
         await _download_entity(bot, event, album_id, cooldown_key,
             log_tag='jm.album',
             fetch_fn=lambda cl, _id: cl.get_album_detail(_id),
             make_info_msg=make_info_msg,
             extra=extra,
-            download_method_fn=lambda dler, ent: dler.download_by_album_detail(ent),
+            download_method_fn=_dl_by_album,
             dler_tag='download_album',
             dl_timeout=300,
             ext=ext,

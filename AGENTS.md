@@ -24,9 +24,10 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `bot.py` | NoneBot2 入口，显式注册 `OnebotV11Adapter` |
 | `.env` | `DRIVER=~fastapi`, `HOST=0.0.0.0`, `PORT=8080`, `COMMAND_START=["/"]`, `TARGET_GROUPS` |
 | `config/onebot11.json` | NapCat WS 客户端 → `ws://127.0.0.1:8080/onebot/v11/ws` |
-| `src/plugins/jm/` | `/jm` 命令包 — `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(二级上传fallback), `progress.py`(进度推送), `common.py`(公共工具) |
-| `src/plugins/mv/` | `/mv` 命令包 — `handler.py`(路由+磁链聚合), `_search.py`(三源并行 coordinator), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
+| `src/plugins/jm/` | `/jm` 命令包 — `cmd.py`(on_command 注册), `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(二级上传fallback), `progress.py`(取消信号下载器), `common.py`(公共工具+锁/冷却/缓存) |
+| `src/plugins/mv/` | `/mv` 命令包 — `cmd.py`(on_command 注册), `handler.py`(路由+磁链聚合), `_search.py`(三源并行 coordinator), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
 | `src/plugins/jm_info.py` | `/jmv` 详情 + `/jms` 搜索 |
+| `src/plugins/jm_comment.py` | `/jmc` 评论（`album_pagination`，需 jmcomic ≥2.7.3） |
 | `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`） |
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
 | `option.yml` | jmcomic 配置（`impl: api`，无 plugin 段，格式由 Feature 传入） |
@@ -46,17 +47,25 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ## 已踩的坑
 
-### Dockerfile
-- 基镜像 `mlikiowa/napcat-docker` 有 `ENTRYPOINT ["bash", "entrypoint.sh"]`，必须用 `ENTRYPOINT []` 清掉
-- `NapCat.Shell.zip` 构建时未解压，需在 `start.sh` 手动 `unzip`
+### Dockerfile / start.sh
+- 基镜像 `mlikiowa/napcat-docker` 有 `ENTRYPOINT ["bash", "entrypoint.sh"]`，必须用 `ENTRYPOINT []` 清掉；镜像固定 `:v4.18.7`，勿改回 `:latest`（上游漂移会破坏构建）
+- `NapCat.Shell.zip` 在 Dockerfile 构建时已解压到 `/app/napcat/`，`start.sh` 仅在 `napcat.mjs` 缺失时兜底解压
+- Docker 中实际运行的 jmcomic 不是 `requirements.txt` 的版本：`pip install --force-reinstall --no-deps "jmcomic @ git+https://github.com/lujih/JMComic-Crawler-Python.git"`（获取 P0 修复）。改 jmcomic 版本/依赖须同步改 Dockerfile
+- StealthyFetcher 需 Chromium：`python -m playwright install-deps chromium && python -m playwright install chromium`（`scrapling.cli.install` 不支持位置参数）
 - `nonebot2` 须安装 `[fastapi]` extras（纯包缺 fastapi）
 - `/app/.config/QQ/NapCat/temp` 权限：需 `mkdir + chown napcat:napcat`
 - `FFMPEG_PATH` 声明后须 `apt-get install ffmpeg`
+- `start.sh` 用 `set -u` 但**不用** `set -e`（前后台进程并存）；`WEBUI_TOKEN`/`ONEBOT_TOKEN` 写入 NapCat 配置后即 `unset` 减少子进程暴露；SIGTERM trap 负责优雅关闭；`sync_onebot11_config` 后台循环按账号同步配置
+- 容器 HEALTHCHECK 探测 `http://127.0.0.1:8080`（NoneBot 端口），不是 7860
 
 ### jmcomic 同步 API 阻塞防护
-- 所有 jmcomic 调用必须经 `run_in_executor` + `wait_for(timeout)` 在 async 上下文中执行（NoneBot2 是 async event loop）
+- jmcomic 是同步库而 NoneBot2 是 async event loop：同步调用（MV `search_video`、httpx 请求）必须经 `run_sync`（`src/_common.py`，默认 180s）+ `wait_for(timeout)`
+- async client 查询（`get_album_detail`/`ranking`/`search_site`/`album_pagination`，`async_impl: async_api`）直接 `await` + `wait_for`，不要再套 `run_sync`
+- **下载走 `JmAsyncDownloader`（jmcomic ≥2.7.0），不再用 run_sync 跑同步下载器**：`progress.py` 子类化 `JmAsyncDownloader`（`async def before_photo` 检查 `cancel_event` 设 `photo.skip`），`_download_entity` 里 `async with dler` + `await asyncio.wait_for(_dl(), dl_timeout)`；超时即取消协程，async-with 保证 client/decode 池清理，无孤儿线程
+- `JmAsyncDownloader` 继承 `BaseDownloader`，`add_features`/`raise_if_has_exception` 均在基类，Feature 导出经 `_run_in_decode_pool(super().after_album)` 照常触发；`async with dler` 创建独立 async client（不再共享 option 的同步 client）
 - MV 搜索并行化：`_search.py` 三站改为 `concurrent.futures.ThreadPoolExecutor(max_workers=3)` 并行执行，每站独立超时互不阻塞
 - MV seeders/leechers 取反修复：Sukebei 表 `cols[-3]=seeders`、`cols[-2]=leechers`
+- MV 磁链搜索多格式兜底（`mv/handler.py`）：先搜原始（`PRED-485`）再搜去分隔（`pred485`），无短横输入时反推标准格式，结果按 BTIH 去重合并
 - 并发控制：全局 `asyncio.Semaphore(2)` 控制并发下载数
 - `wait_for` 超时后底层线程无法取消（Python 线程语义），可能游离。已移除超时重试循环避免并发写
 - 进度展示：下载前一次性展示本子详情（`album.py` 直接发送），不再通过下载器回调逐章推送
@@ -97,8 +106,8 @@ pip install -e path/to/JMComic-Crawler-Python
 - 三层保护：处理锁 + message_id 去重 + cooldown
 - 处理锁 key = `album_id`（不含 user_id）：不同用户并发下载同一本子不互斥
 - 冷却 key = `f"{user_id}:{album_id}"`：仅限制同一用户对同一本子的频率
-- `_try_lock_album` 检查 `_processing_albums` 集合，立即返回 False 忽略重复
-- `_unlock_album` **立即**释放（无延迟），`try/finally` 保证
+- `_try_lock_album_by_aid` 检查 `_processing_albums` 集合，立即返回 False 忽略重复
+- `_unlock_album_by_aid` **立即**释放（无延迟），`try/finally` 保证
 - photo 下载使用独立前缀 `p:{photo_id}`，与 album 锁互不干扰
 
 ### 动态下载目录
@@ -128,16 +137,24 @@ pip install -e path/to/JMComic-Crawler-Python
 | `/jm help` | 查看全部命令 | `/jm help` |
 | `/jmv <ID>` | 查看本子详情 | `/jmv 438516` |
 | `/jms <关键词>` | 搜索本子 | `/jms 无修正` |
+| `/jmc <ID> [页码]` | 查看本子评论 | `/jmc 438516 2` |
 | `/mv <番号>` | 搜索番号（三源并行: MissAV+JavDB+jav321 + Sukebei 磁力链）返回磁力链接 | `/mv SSNI-123` |
 | `/mv <番号> --page N` | 翻页 | `/mv SSNI-123 --page 2` |
 | 每日早 9:00 | 自动推送随机推荐 | 需 `.env` 配置 `TARGET_GROUPS` |
 
 ### 限制与行为
-- 每人每 album 15 秒冷却（仅下载，rank/random/help 无冷却），key = `f"{user_id}:{album_id}"`
+- 15 秒冷却 key = `f"{user_id}:{album_id}"`；单章 `p{photo_id}`、`rank:{period}`、`random`、`jmc:{album_id}` 各自独立 key（help 无冷却）
 - 下载前一次性展示本子详情（名称/作者/章节/页数/标签），不再发逐章进度
-- 下载超时直接结束（无自动重试，避免线程竞态），jmcomic 内部已有 3 次重试
+- 下载超时直接结束（无自动重试，避免竞态），jmcomic 内部已有 3 次重试；async 下载器超时后协程被取消，无残留线程
 - 30 分钟短时缓存（`/tmp/jm/{id}.ext`），APScheduler 每 5 分钟定时清理过期缓存和残留下载目录（`/tmp/jm_dl/`）
 - 清理同时处理目录和文件（不再仅限目录）
 - 下载后自动清理原始图片（`/tmp/jm_dl/{id}/`），通过 `finally` 块保证
+
+## 代码约定
+
+- 命令注册与路由分离：`cmd.py` 定义 `on_command`（`priority=10`, `rule=is_type(GroupMessageEvent)`），`handler.py` 处理逻辑，`__init__.py` 里 `from . import handler` 完成装载；`bot.py` 用 `nonebot.load_plugins("src/plugins")` 加载
+- 所有群命令只响应 `GroupMessageEvent`（`is_type` 规则）
+- `jm_info.py` / `jm_comment.py` / `jm_scheduler.py` 是单文件插件，直接在文件内 `on_command` / `scheduler.scheduled_job`，无 cmd.py
+- 无测试套件、无 linter/CI 配置；验证手段为 `python -m py_compile` + 本地 `python bot.py` 启动
 
 

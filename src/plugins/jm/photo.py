@@ -21,12 +21,15 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
                 f"🆔 p{photo.photo_id} | 🖼️ {len(photo)}页"
             )
 
+        async def _dl_by_photo(dler, ent):
+            await dler.download_by_photo_detail(ent)
+
         await _download_entity(bot, event, photo_id, cooldown_key,
             log_tag='jm.photo',
             fetch_fn=lambda cl, _id: cl.get_photo_detail(_id),
             make_info_msg=make_info_msg,
             extra=extra,
-            download_method_fn=lambda dler, ent: dler.download_by_photo_detail(ent),
+            download_method_fn=_dl_by_photo,
             dler_tag='download_photo',
             dl_timeout=120,
             ext='pdf',

@@ -55,6 +55,11 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         f"📄 章节数: {len(album)}",
         f"🖼️ 总页数: {album.page_count or '?'}",
     ]
+    if album.description:
+        desc = re.sub(r'\s+', ' ', album.description).strip()
+        lines.append(f"📝 简介: {desc[:100]}{'…' if len(desc) > 100 else ''}")
+    if album.comment_count:
+        lines.append(f"💬 评论: {album.comment_count}")
 
     if album.pub_date and album.pub_date != '0':
         lines.append(f"📅 发布日期: {album.pub_date}")
@@ -76,10 +81,12 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
 
     if len(album) > 0:
         chapter_lines = []
-        for pid, pindex, pname in album.episode_list:
+        for pid, pindex, pname in itertools.islice(album.episode_list, 30):
             chapter_lines.append(f"    第{pindex}話 {pname} (id: {pid})")
         lines.append(f"\n📑 章节 ({len(album)}):")
         lines.extend(chapter_lines)
+        if len(album) > 30:
+            lines.append(f"    … 还有 {len(album) - 30} 章未显示（用 /jm 直接下载）")
 
     await jmv_cmd.finish("\n".join(lines))
 
