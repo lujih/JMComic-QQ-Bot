@@ -12,7 +12,7 @@ from jmcomic import jm_log
 from _common import run_sync
 from plugins.jm.common import _check_cooldown, _clear_cooldown
 from plugins.mv.cmd import mv_cmd
-from plugins.mv._search import search_video, _btih
+from plugins.mv._search import search_video, _btih, _normalize_code
 from plugins.mv._torrent import search as search_torrent
 
 # 限制同时存活的 Chromium 数（每命令 MissAV/JavDB 各拉起 1 个 headless 浏览器）
@@ -54,7 +54,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         if page < 1:
             page = 1
 
-    cooldown_key = f"{event.user_id}:mv:{text.upper()}"
+    cooldown_key = f"{event.user_id}:mv:{_normalize_code(text)}:{page}"
     remaining = _check_cooldown(cooldown_key)
     if remaining:
         await mv_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")

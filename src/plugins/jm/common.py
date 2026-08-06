@@ -102,11 +102,8 @@ def _parse_format_flags(text: str):
 
 def _is_cache_valid(path: Path, max_age=_STALE_AGE):
     try:
-        return (
-            path.exists()
-            and path.stat().st_size > 0
-            and time.time() - path.stat().st_mtime < max_age
-        )
+        st = path.stat()
+        return st.st_size > 0 and time.time() - st.st_mtime < max_age
     except OSError:
         return False
 
