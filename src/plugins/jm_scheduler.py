@@ -74,9 +74,9 @@ async def cleanup_stale_dirs():
         jm_log("jm.scheduler.cleanup", f"定时清理下载缓存：删除了 {count} 个过期目录")
 
 
-@scheduler.scheduled_job("interval", minutes=30, id="space_keepalive")
+@scheduler.scheduled_job("interval", hours=24, id="space_keepalive")
 async def space_keepalive():
-    """自 ping Space 公网入口，配合 GitHub Actions 防 HF 免费版 48h 无请求休眠"""
+    """自 ping Space 公网入口，配合 GitHub Actions 防 HF 免费版 48h 无请求休眠（24h < 48h）"""
     url = os.getenv("SPACE_URL", "https://cszx-jmcomic-qq-bot.hf.space").rstrip("/") + "/"
     try:
         loop = asyncio.get_running_loop()
