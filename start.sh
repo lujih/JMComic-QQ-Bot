@@ -10,15 +10,8 @@ NAPCAT_DIR=/app/napcat
 NAPCAT_CONFIG=$NAPCAT_DIR/config
 mkdir -p "$NAPCAT_CONFIG"
 
-# 0a. Generate random WebUI token if not set
-if [ -z "${WEBUI_TOKEN:-}" ]; then
-    if command -v openssl &>/dev/null; then
-        WEBUI_TOKEN=$(openssl rand -hex 16)
-    else
-        WEBUI_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(16))")
-    fi
-    echo "[start] Generated random WebUI token: ${WEBUI_TOKEN}"
-fi
+# 0a. 固定默认 WebUI token（可被 WEBUI_TOKEN 环境变量覆盖）；不随机生成，方便 WebUI 访问
+WEBUI_TOKEN="${WEBUI_TOKEN:-jmcomic}"
 
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
 echo "[start] Writing NapCat WebUI config (port 7860)..."

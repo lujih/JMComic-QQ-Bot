@@ -24,9 +24,9 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `bot.py` | NoneBot2 入口，显式 `load_plugin("plugins.jm"/"plugins.mv"/...)` 加载（**勿用 `load_plugins("src/plugins")`**，见双命名空间坑） |
 | `.env` | `DRIVER=~fastapi`, `HOST=0.0.0.0`, `PORT=8080`, `COMMAND_START=["/"]`, `TARGET_GROUPS` |
 | `config/onebot11.json` | NapCat WS 客户端 → `ws://127.0.0.1:8080/onebot/v11/ws` |
-| `src/plugins/jm/` | `/jm` 命令包 — `cmd.py`(on_command 注册), `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(二级上传fallback), `progress.py`(取消信号下载器), `common.py`(公共工具+锁/冷却/缓存) |
+| `src/plugins/jm/` | `/jm` 命令包 — `cmd.py`(on_command 注册), `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(二级上传fallback), `progress.py`(取消信号下载器), `compress.py`(zip 源图压缩 Feature), `common.py`(公共工具+锁/冷却/缓存) |
 | `src/plugins/mv/` | `/mv` 命令包 — `cmd.py`(on_command 注册), `handler.py`(路由+磁链聚合), `_search.py`(三源并行 coordinator), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
-| `src/plugins/jm_info.py` | `/jmv` 详情 + `/jms` 搜索 |
+| `src/plugins/jm_info.py` | `/jmv` 详情（封面图+相关推荐） + `/jms` 搜索 |
 | `src/plugins/jm_comment.py` | `/jmc` 评论（`album_pagination`，需 jmcomic ≥2.7.3） |
 | `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`）+ 每 5 分钟缓存清理 + 每 24 小时 Space 自 ping 防休眠 |
 | `.github/workflows/keepalive.yml` | GitHub Actions 每 24 小时 ping HF Space URL 防休眠（与 bot 内自 ping 双保险） |
@@ -63,7 +63,7 @@ pip install -e path/to/JMComic-Crawler-Python
 - `nonebot2` 须安装 `[fastapi]` extras（纯包缺 fastapi）
 - `/app/.config/QQ/NapCat/temp` 权限：需 `mkdir + chown napcat:napcat`
 - `FFMPEG_PATH` 声明后须 `apt-get install ffmpeg`
-- `start.sh` 用 `set -u` 但**不用** `set -e`（前后台进程并存）；`WEBUI_TOKEN` 写入后即 `unset`；`ONEBOT_TOKEN` 先备份到 `ONEBOT_TOKEN_BACKUP` 再 unset，供配置注入使用（NoneBot 适配器读 `ONEBOT_ACCESS_TOKEN`，勿用旧名 `ONEBOT_TOKEN`）；SIGTERM trap 负责优雅关闭；`sync_onebot11_config` 后台循环按账号同步配置
+- `start.sh` 用 `set -u` 但**不用** `set -e`（前后台进程并存）；`WEBUI_TOKEN` 默认固定 `jmcomic`（不随机，可被环境变量覆盖，QQ 扫码登录后 NapCat 可能强制改密一次）写入后即 `unset`；`ONEBOT_TOKEN` 先备份到 `ONEBOT_TOKEN_BACKUP` 再 unset，供配置注入使用（NoneBot 适配器读 `ONEBOT_ACCESS_TOKEN`，勿用旧名 `ONEBOT_TOKEN`）；SIGTERM trap 负责优雅关闭；`sync_onebot11_config` 后台循环按账号同步配置
 - `ENV TZ=Asia/Shanghai`（否则 cron 按 UTC，每日推荐会在北京 17:00 推送）
 - 容器 HEALTHCHECK 探测 `http://127.0.0.1:7860`（NapCat WebUI），不是 8080（NoneBot 无根路由，探测会恒 404）
 
@@ -84,6 +84,7 @@ pip install -e path/to/JMComic-Crawler-Python
 ### jmcomic Feature 机制
 - 格式（PDF/ZIP/长图）通过 `Feature.export_*` 作为 `extra` 参数传入，不写在 `option.yml` plugin 段
 - `after_album` 下 `photo=None`，`filename_rule` 必须用 `A` 前缀（如 `Aid`）；单章下载用 `Pid`
+- **zip 源图压缩**（`compress.py`）：`CompressZipFeature() + Feature.export_zip(...)` 组合（FeatureChain 按序执行，压缩须在 zip 前）；自适应档位 (60, 50)——实测源图解码质量高（q75 仅 -2%、q60 -13%），JPEG 对 zip 二次压缩收益 ≈ 图片压缩收益
 - 详见 jmcomic 库的 `AGENTS.md`
 
 ### jm_scheduler 未复用 option 缓存

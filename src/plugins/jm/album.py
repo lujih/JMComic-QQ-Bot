@@ -23,6 +23,10 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
             **{f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR)},
             filename_rule='Aid'
         )
+        if fmt == 'zip':
+            # 先压缩源图再打包（FeatureChain 按序执行，压缩 Feature 须在 export_zip 之前）
+            from plugins.jm.compress import CompressZipFeature
+            extra = CompressZipFeature() + extra
 
         def make_info_msg(album):
             tags_str = f"\n🏷️ {'、'.join(album.tags[:5])}" if album.tags else ""

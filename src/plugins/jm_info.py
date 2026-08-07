@@ -1,13 +1,17 @@
+import os
 import re
 import asyncio
 import itertools
+import tempfile
+import uuid
+from pathlib import Path
 
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message
 from nonebot.params import CommandArg
 from nonebot.rule import is_type
 
-from jmcomic import jm_log
+from jmcomic import jm_log, JmcomicText
 from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFailException
 
 from jm_option import get_option as _get_option
@@ -20,6 +24,30 @@ jmv_cmd = on_command("jmv", priority=10, rule=is_type(GroupMessageEvent))
 jms_cmd = on_command("jms", priority=10, rule=is_type(GroupMessageEvent))
 
 
+async def _delayed_rm(path: str, delay: int = 30):
+    await asyncio.sleep(delay)
+    try:
+        os.remove(path)
+    except Exception:
+        pass
+
+
+async def _fetch_cover(cl, album_id: str) -> str | None:
+    """下载本子封面到临时文件，失败返回 None（静默降级为纯文本详情）"""
+    try:
+        cover_url = JmcomicText.get_album_cover_url(album_id)
+        img = await asyncio.wait_for(cl.get_jm_image(cover_url), timeout=30)
+        if img.http_code != 200 or not img.content:
+            return None
+        path = str(Path(tempfile.gettempdir()) / f"jm_cover_{album_id}_{uuid.uuid4().hex[:8]}.jpg")
+        with open(path, "wb") as f:
+            f.write(img.content)
+        return path
+    except Exception as e:
+        jm_log('jm.info', f'封面下载失败: {album_id}', e)
+        return None
+
+
 @jmv_cmd.handle()
 async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     text = msg.extract_plain_text().strip()
@@ -30,10 +58,12 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     album_id = match.group()
     await jmv_cmd.send(f"🔍 正在查询 JM{album_id} 详情……")
 
+    cover_path = None
     try:
         option = _get_option()
         async with option.new_jm_async_client() as cl:
             album = await asyncio.wait_for(cl.get_album_detail(album_id), timeout=60)
+            cover_path = await _fetch_cover(cl, album_id)
     except asyncio.TimeoutError:
         jm_log('jm.info', f'查询详情超时: {album_id}')
         await jmv_cmd.finish("❌ 查询超时，请稍后再试")
@@ -46,6 +76,10 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     except Exception as e:
         jm_log('jm.info', '查询详情失败', e)
         await jmv_cmd.finish("❌ 查询失败")
+
+    if cover_path:
+        await jmv_cmd.send(Message(f"[CQ:image,file=file://{cover_path}]"))
+        asyncio.create_task(_delayed_rm(cover_path))
 
     tags_str = "、".join(album.tags) if album.tags else "无"
     lines = [
@@ -85,6 +119,17 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         lines.extend(chapter_lines)
         if len(album) > 30:
             lines.append(f"    … 还有 {len(album) - 30} 章未显示（用 /jm 直接下载）")
+
+    related = getattr(album, 'related_list', None) or []
+    if related:
+        lines.append("\n📚 相关推荐:")
+        for r in itertools.islice(related, 5):
+            rid = r.get('id', '')
+            rname = r.get('name', '')
+            if not rid:
+                continue
+            rname = rname if len(rname) <= 30 else rname[:27] + "…"
+            lines.append(f"JM{rid}  {rname}")
 
     await jmv_cmd.finish("\n".join(lines))
 
