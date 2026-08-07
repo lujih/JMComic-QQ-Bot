@@ -58,7 +58,8 @@ pip install -e path/to/JMComic-Crawler-Python
 - 基镜像 `mlikiowa/napcat-docker` 有 `ENTRYPOINT ["bash", "entrypoint.sh"]`，必须用 `ENTRYPOINT []` 清掉；镜像固定 `:v4.18.7`，勿改回 `:latest`（上游漂移会破坏构建）
 - `NapCat.Shell.zip` 在 Dockerfile 构建时已解压到 `/app/napcat/`，`start.sh` 仅在 `napcat.mjs` 缺失时兜底解压
 - Docker 中实际运行的 jmcomic 不是 `requirements.txt` 的版本：`pip install --force-reinstall --no-deps "jmcomic @ git+...@e3c7e40"`（钉 commit，获取 P0 修复且保证可复现；升级 jmcomic 须改 commit 并跑上游 tests）
-- StealthyFetcher 需 Chromium：`ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright` 后 `python -m playwright install-deps chromium && python -m playwright install chromium`（路径必须与运行期一致——gosu napcat 的 HOME=/app，构建期默认 HOME=/root 会错位导致浏览器找不到）
+- StealthyFetcher 需 Chromium：`ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright` 后 `pip install "playwright==1.61.0" "patchright==1.61.2" && python -m playwright install chromium && python -m patchright install chromium`（两个 install 都跑：patchright 与 playwright 的 chromium revision 可能不同，共用路径同 revision 幂等；路径必须与运行期一致——gosu napcat 的 HOME=/app，构建期默认 HOME=/root 会错位导致浏览器找不到）
+- **浏览器层在 pip 层之前**（只依赖 venv 层）：requirements.txt 变更不触发 Chromium 重下（省 ~2.5min/次）；apt 层一次性装齐 chromium 系统依赖（勿用 `install-deps`，它会再跑一轮 apt 下载 ubuntu 源，HF 构建器访问该源极慢）
 - `nonebot2` 须安装 `[fastapi]` extras（纯包缺 fastapi）
 - `/app/.config/QQ/NapCat/temp` 权限：需 `mkdir + chown napcat:napcat`
 - `FFMPEG_PATH` 声明后须 `apt-get install ffmpeg`
