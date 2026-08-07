@@ -80,7 +80,7 @@ git push
 | `ACCOUNT` | 指定 QQ 账号自动登录（可选） | 留空（手动扫码） |
 | `SPACE_URL` | 防休眠自 ping 的 Space URL（可选，默认由 HF `SPACE_HOST` 推导） | 自动推导 |
 
-或在 `.env` 文件中配置后随代码推送。
+> 环境变量请通过 **HF Settings → Variables** 配置（Docker 构建上下文会排除 `.env`，README 中随代码推送的方式不可用）。`WEBUI_TOKEN` 默认 `jmcomic` 为公开默认值——若 Space 未设为 private，建议在 Variables 中设置随机 token。
 
 ### 4. QQ 扫码登录（仅首次）
 
@@ -162,18 +162,22 @@ HF Spaces 免费版 48h 无活动会休眠，本项目已内置双保险保活�
 ```yaml
 dir_rule:
   base_dir: /tmp/jm_dl/
-  rule: Bd_Aid
+  rule: Bd_Aid_Pid       # 每章节独立目录（Bd_Aid 扁平目录会导致多章节导出内容重复）
 
 client:
   impl: api             # 必须用 api（移动端 API），HF 海外节点无法访问 HTML 页面
   async_impl: async_api
+  cache: false          # 关闭 jmcomic 内存缓存（bot 已有 30 分钟文件缓存层）
   retry_times: 3
-  cache: level_option
+  proxies: null         # 显式禁用系统代理
   postman:
     meta_data:
       timeout: 30
 
 download:
+  cache: true           # 图片下载缓存（防重下）
+  threading:
+    image: 2
   image:
     suffix: .jpg
     decode: true       # webp → JPEG 解码（必须 true，否则 PDF 图片破碎）
@@ -220,7 +224,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | QQ 扫码后闪退 | 账号风控 / NTQQ 兼容性 | 换一个小号，或更新 napcat-docker 镜像版本 |
 | `/jm` 命令返回超时 | 禁漫API 请求超时 | HF 海外节点正常，无需代理；若持续可重试 |
 | `/jm` 返回「文件未找到」 | 生成阶段错误 | 检查 Container Logs 中 jmcomic 报错 |
-| `/jm` 群内重复下载两次 | NapCat 上传完成回放假消息 | 已在最新版本修复（处理锁延迟 15s 释放），pull 最新代码 |
+| `/jm` 群内重复下载两次 | NapCat 上传完成回放假消息（同 message_id） | 已修复（message_id 去重 + 冷却兜底），pull 最新代码 |
 | 每日 9:00 未推送 | `TARGET_GROUPS` 未配置 | 添加群号到环境变量 |
 
 ## 文件结构

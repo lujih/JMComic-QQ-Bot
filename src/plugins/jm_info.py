@@ -15,6 +15,7 @@ from jmcomic import jm_log, JmcomicText
 from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFailException
 
 from jm_option import get_option as _get_option
+from plugins.jm.common import _check_cooldown, _clear_cooldown
 
 __plugin_name__ = "jm_info"
 __plugin_usage__ = "/jmv <ID> — 查看本子详情\n/jms <关键字> — 搜索本子"
@@ -33,16 +34,26 @@ async def _delayed_rm(path: str, delay: int = 30):
 
 
 async def _fetch_cover(cl, album_id: str) -> str | None:
-    """下载本子封面到临时文件，失败返回 None（静默降级为纯文本详情）"""
+    """下载本子封面到临时文件，失败返回 None（静默降级为纯文本详情）。
+
+    图床域名可能失效/地域封锁，依次尝试多个域名。
+    """
     try:
-        cover_url = JmcomicText.get_album_cover_url(album_id)
-        img = await asyncio.wait_for(cl.get_jm_image(cover_url), timeout=30)
-        if img.http_code != 200 or not img.content:
-            return None
-        path = str(Path(tempfile.gettempdir()) / f"jm_cover_{album_id}_{uuid.uuid4().hex[:8]}.jpg")
-        with open(path, "wb") as f:
-            f.write(img.content)
-        return path
+        from jmcomic.jm_config import JmModuleConfig
+        domains = list(JmModuleConfig.DOMAIN_IMAGE_LIST)
+        for domain in domains[:3]:
+            try:
+                cover_url = JmcomicText.get_album_cover_url(album_id, image_domain=domain)
+                img = await asyncio.wait_for(cl.get_jm_image(cover_url), timeout=30)
+                if img.http_code == 200 and img.content:
+                    path = str(Path(tempfile.gettempdir()) / f"jm_cover_{album_id}_{uuid.uuid4().hex[:8]}.jpg")
+                    with open(path, "wb") as f:
+                        f.write(img.content)
+                    return path
+            except Exception as e:
+                jm_log('jm.info', f'封面下载失败(域 {domain}): {album_id}', e)
+        jm_log('jm.info', f'封面下载失败: 所有域名不可达 ({album_id})')
+        return None
     except Exception as e:
         jm_log('jm.info', f'封面下载失败: {album_id}', e)
         return None
@@ -56,6 +67,10 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         await jmv_cmd.finish("格式: /jmv <本子ID>\n例如: /jmv 438516")
 
     album_id = match.group()
+    cooldown_key = f"{event.user_id}:jmv:{album_id}"
+    remaining = _check_cooldown(cooldown_key)
+    if remaining:
+        await jmv_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
     await jmv_cmd.send(f"🔍 正在查询 JM{album_id} 详情……")
 
     cover_path = None
@@ -65,21 +80,34 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
             album = await asyncio.wait_for(cl.get_album_detail(album_id), timeout=60)
             cover_path = await _fetch_cover(cl, album_id)
     except asyncio.TimeoutError:
+        _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'查询详情超时: {album_id}')
         await jmv_cmd.finish("❌ 查询超时，请稍后再试")
     except MissingAlbumPhotoException:
+        _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'本子不存在: {album_id}')
         await jmv_cmd.finish("❌ 本子不存在，请检查 ID")
     except RequestRetryAllFailException:
+        _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'查询详情失败: API 不可达 ({album_id})')
         await jmv_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
+        _clear_cooldown(cooldown_key)
         jm_log('jm.info', '查询详情失败', e)
         await jmv_cmd.finish("❌ 查询失败")
 
     if cover_path:
-        await jmv_cmd.send(Message(f"[CQ:image,file=file://{cover_path}]"))
-        asyncio.create_task(_delayed_rm(cover_path))
+        try:
+            await jmv_cmd.send(Message(f"[CQ:image,file={Path(cover_path).as_uri()}]"))
+        except Exception as e:
+            jm_log('jm.info', f'封面发送失败: {album_id}', e)
+            try:
+                os.remove(cover_path)
+            except Exception:
+                pass
+            cover_path = None
+        else:
+            asyncio.create_task(_delayed_rm(cover_path))
 
     tags_str = "、".join(album.tags) if album.tags else "无"
     lines = [
@@ -140,6 +168,11 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     if not text:
         await jms_cmd.finish("格式: /jms <关键词>\n例如: /jms 无修正")
 
+    cooldown_key = f"{event.user_id}:jms:{text}"
+    remaining = _check_cooldown(cooldown_key)
+    if remaining:
+        await jms_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+
     await jms_cmd.send(f"🔍 正在搜索「{text}」……")
 
     try:
@@ -147,12 +180,15 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         async with option.new_jm_async_client() as cl:
             page = await asyncio.wait_for(cl.search_site(text, 1), timeout=60)
     except asyncio.TimeoutError:
+        _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'搜索超时: {text}')
         await jms_cmd.finish("❌ 搜索超时，请稍后再试")
     except RequestRetryAllFailException:
+        _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'搜索失败: API 不可达 ({text})')
         await jms_cmd.finish("❌ 搜索失败，API 暂时不可达，请稍后再试")
     except Exception as e:
+        _clear_cooldown(cooldown_key)
         jm_log('jm.info', '搜索失败', e)
         await jms_cmd.finish("❌ 搜索失败")
 

@@ -21,7 +21,7 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
         feature_cls, ext, fmt_name = FORMAT_MAP[fmt]
         extra = feature_cls(
             **{f'{ext}_dir' if ext != 'png' else 'img_dir': str(_TMP_DIR)},
-            filename_rule='Aid'
+            filename_rule='a{Aid}'
         )
         if fmt == 'zip':
             # 先压缩源图再打包（FeatureChain 按序执行，压缩 Feature 须在 export_zip 之前）

@@ -28,8 +28,8 @@ def search_missav(code: str) -> dict:
     if fetcher is None:
         return {}
 
-    # 从归一化 code（如 "mdbk00331"）还原带连字符的 URL（如 "MDBK-331"）
-    m = re.match(r'^([a-z]+)(\d+)$', code)
+    # 从归一化 code（如 "mdbk00331"/"200gana00123"）还原带连字符的 URL（"MDBK-331"/"200GANA-123"）
+    m = re.match(r'^(.+?)(\d+)$', code)
     url_code = code.upper()
     if m:
         prefix = m.group(1).upper()

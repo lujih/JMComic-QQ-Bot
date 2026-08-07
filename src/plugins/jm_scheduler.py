@@ -17,6 +17,8 @@ from plugins.jm.common import _cleanup_stale_dirs
 __plugin_name__ = "jm_scheduler"
 __plugin_usage__ = "每日早 9 点推送随机推荐 + 定时清理下载缓存"
 
+_health_fail_count = 0
+
 
 def _parse_target_groups() -> list[int]:
     raw = os.getenv("TARGET_GROUPS", "").strip()
@@ -72,6 +74,22 @@ async def cleanup_stale_dirs():
     count = await loop.run_in_executor(None, _cleanup_stale_dirs)
     if count:
         jm_log("jm.scheduler.cleanup", f"定时清理下载缓存：删除了 {count} 个过期目录")
+
+
+@scheduler.scheduled_job("interval", minutes=30, id="connection_health")
+async def connection_health():
+    """检测 WS 连接：NapCat 未连接 = QQ 掉线/未扫码登录，连续 1 小时无连接输出醒目告警"""
+    global _health_fail_count
+    try:
+        get_bot()
+        _health_fail_count = 0
+    except ValueError:
+        _health_fail_count += 1
+        if _health_fail_count >= 2:
+            jm_log("jm.scheduler.health",
+                   "⚠️ 连续 1 小时未检测到 WS 连接（NapCat/QQ 可能掉线或未扫码登录），请打开 WebUI 重新扫码")
+    except Exception as e:
+        jm_log("jm.scheduler.health", f"连接检测异常: {e}")
 
 
 @scheduler.scheduled_job("interval", hours=24, id="space_keepalive")

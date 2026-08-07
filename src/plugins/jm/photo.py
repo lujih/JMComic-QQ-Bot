@@ -16,7 +16,7 @@ async def _download_photo(bot, event, photo_id: str, cooldown_key: str):
         jm_log('jm.photo', f'忽略重复请求 p{photo_id}')
         await jm_cmd.finish("⏳ 该章节正在下载中，请稍候再试")
     try:
-        extra = Feature.export_pdf(pdf_dir=str(_TMP_DIR), filename_rule='Pid')
+        extra = Feature.export_pdf(pdf_dir=str(_TMP_DIR), filename_rule='p{Pid}')
 
         def make_info_msg(photo):
             return (

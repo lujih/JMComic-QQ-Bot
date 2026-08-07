@@ -83,7 +83,7 @@ class CompressZipFeature(Feature):
 
     挂在 after_album：经 FeatureChain 组合时须位于 export_zip 之前
     （_invoke_features_for 按注册顺序执行，压缩先于打包）。
-    禁漫图片解码后为 JPEG；按 (75, 60, 50) 逐档尝试，均未减小则保留原图。
+    禁漫图片解码后为 JPEG；按 (60, 50) 逐档尝试，均未减小则保留原图。
     """
 
     def should_invoke(self, feature_from: str, when: str) -> bool:

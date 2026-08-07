@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 
 import httpx
@@ -17,6 +18,38 @@ from plugins.mv._torrent import search as search_torrent
 
 # 限制同时存活的 Chromium 数（每命令 MissAV/JavDB 各拉起 1 个 headless 浏览器）
 _mv_search_semaphore = asyncio.Semaphore(2)
+# 三源搜索结果缓存：翻页只重跑 sukebei（页面相关），不重跑 Chromium 搜索
+_av_info_cache: dict[str, tuple[float, dict]] = {}
+_AV_INFO_TTL = 1800
+
+
+def _get_av_info_cached(code: str):
+    cached = _av_info_cache.get(code)
+    if cached and time.time() - cached[0] < _AV_INFO_TTL:
+        return cached[1]
+    return None
+
+
+async def _search_av_info(text: str, cooldown_key: str):
+    """三源搜索（带冷却 + 闸门），成功写入缓存"""
+    code = _normalize_code(text)
+    remaining = _check_cooldown(cooldown_key)
+    if remaining:
+        await mv_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+
+    try:
+        async with _mv_search_semaphore:
+            av_info = await run_sync(search_video, text, timeout=120)
+    except Exception as e:
+        _clear_cooldown(cooldown_key)
+        jm_log('jm.mv.search', '视频搜索异常', e)
+        await mv_cmd.finish(f"❌ 搜索 {text.upper()} 时出现异常，请稍后再试")
+    if not av_info:
+        _clear_cooldown(cooldown_key)
+        await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的信息")
+
+    _av_info_cache[code] = (time.time(), av_info)
+    return av_info
 
 
 def _clean_magnet(magnet: str, short_id: str = "") -> str:
@@ -47,28 +80,27 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         )
 
     page = 1
-    m = re.search(r'--page\s+(\d+)', text)
+    m = re.search(r'--page[=\s]+(\d+)', text)
     if m:
         page = int(m.group(1))
-        text = re.sub(r'--page\s+\d+', '', text).strip()
+        text = re.sub(r'--page[=\s]+\d+', '', text).strip()
         if page < 1:
             page = 1
 
-    cooldown_key = f"{event.user_id}:mv:{_normalize_code(text)}:{page}"
-    remaining = _check_cooldown(cooldown_key)
-    if remaining:
-        await mv_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+    if not text:
+        await mv_cmd.finish(
+            "格式: /mv <番号>\n"
+            "示例: /mv SSNI-123\n"
+            "      /mv SSNI-123 --page 2"
+        )
 
-    try:
-        async with _mv_search_semaphore:
-            av_info = await run_sync(search_video, text, timeout=120)
-    except Exception as e:
-        _clear_cooldown(cooldown_key)
-        jm_log('jm.mv.search', '视频搜索异常', e)
-        await mv_cmd.finish(f"❌ 搜索 {text.upper()} 时出现异常，请稍后再试")
-    if not av_info:
-        _clear_cooldown(cooldown_key)
-        await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的信息")
+    code = _normalize_code(text)
+    cooldown_key = None
+    av_info = _get_av_info_cached(code)
+    if av_info is None:
+        # 三源搜索（Chromium）才需要冷却；翻页命中缓存时只重跑 sukebei，不占用冷却
+        cooldown_key = f"{event.user_id}:mv:{code}"
+        av_info = await _search_av_info(text, cooldown_key)
 
     async def _delayed_rm(path: str, delay: int = 30):
         await asyncio.sleep(delay)
@@ -94,7 +126,7 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             cover_path = str(Path(tempfile.gettempdir()) / f"jm_mv_cover_{safe}_{uuid.uuid4().hex[:8]}.jpg")
             with open(cover_path, "wb") as f:
                 f.write(resp.content)
-            await mv_cmd.send(Message(f"[CQ:image,file=file://{cover_path}]"))
+            await mv_cmd.send(Message(f"[CQ:image,file={Path(cover_path).as_uri()}]"))
             asyncio.create_task(_delayed_rm(cover_path))
         except Exception as e:
             jm_log('jm.mv.cover', f'封面下载失败', e)
@@ -166,13 +198,15 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             results.append({'magnet': m['magnet'], 'seeders': -1})
 
     if not results:
-        _clear_cooldown(cooldown_key)
+        if cooldown_key is not None:
+            _clear_cooldown(cooldown_key)
         await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的磁力链接")
 
     # 过滤死種：tracker seeders=0 排除，全死種时降级显示全部
     alive = [r for r in results if r.get('seeders', -1) == -1 or r.get('seeders', 0) > 0]
     display = alive if alive else results
-    display.sort(key=lambda r: r.get('seeders', -1), reverse=True)
+    # seeders=-1（三源磁链，未知）置顶，其余按 seeders 降序
+    display.sort(key=lambda r: 10**9 if r.get('seeders', -1) < 0 else r.get('seeders', 0), reverse=True)
     display = display[:10]
 
     lines = []

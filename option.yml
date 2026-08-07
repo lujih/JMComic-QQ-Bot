@@ -1,6 +1,6 @@
 dir_rule:
   base_dir: /tmp/jm_dl/
-  rule: Bd_Aid
+  rule: Bd_Aid_Pid
 
 client:
   impl: api

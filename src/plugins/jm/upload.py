@@ -68,7 +68,7 @@ async def _upload_via_stream(bot: Bot, group_id: int, file_path: Path, filename:
     })
 
 
-async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Path, id_str: str, cooldown_key: str, ext='pdf', fmt_name='PDF'):
+async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Path, id_str: str, cooldown_key: str, ext='pdf', fmt_name='PDF', dl_dir: Path | None = None):
     success = False
     try:
         try:
@@ -104,7 +104,7 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
             await jm_cmd.finish(f"❌ {fmt_name} 上传失败（已尝试 2 种方式）")
     finally:
         loop = asyncio.get_running_loop()
-        d = _get_dl_tmp() / id_str
+        d = dl_dir or (_get_dl_tmp() / id_str)
         if d.exists():
             await loop.run_in_executor(None, lambda: shutil.rmtree(d, ignore_errors=True))
 

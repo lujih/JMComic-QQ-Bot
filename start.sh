@@ -110,18 +110,25 @@ export DISPLAY=:1
 
 # 7. Start QQ + NapCat in background (auto-restart on crash)
 echo "[start] Starting QQ + NapCat..."
+mkdir -p /app/logs
 cd "$NAPCAT_DIR"
 start_qq() {
+    crash_count=0
     while true; do
         if [ -n "${ACCOUNT:-}" ]; then
-            gosu napcat /opt/QQ/qq --no-sandbox -q "$ACCOUNT" > /dev/null 2>&1 &
+            gosu napcat /opt/QQ/qq --no-sandbox -q "$ACCOUNT" > /app/logs/qq.log 2>&1 &
         else
-            gosu napcat /opt/QQ/qq --no-sandbox > /dev/null 2>&1 &
+            gosu napcat /opt/QQ/qq --no-sandbox > /app/logs/qq.log 2>&1 &
         fi
         pid=$!
         echo $pid > /tmp/qq.pid
         wait $pid || true
-        echo "[start] QQ/NapCat exited, restarting in 10s..."
+        crash_count=$((crash_count + 1))
+        echo "[start] QQ/NapCat exited (crash #$crash_count), restarting in 10s..."
+        tail -n 20 /app/logs/qq.log 2>/dev/null || true
+        if [ "$crash_count" -ge 5 ]; then
+            echo "[start] WARNING: QQ 连续崩溃 $crash_count 次，请检查日志 /app/logs/qq.log"
+        fi
         sleep 10
     done
 }
@@ -131,6 +138,8 @@ cd /app/bot
 # 8. Start NoneBot2 (foreground — keeps container alive)
 echo "[start] Starting NoneBot2..."
 export PYTHONUNBUFFERED=1
+# NoneBot onebot 适配器读取 ONEBOT_ACCESS_TOKEN 校验 WS 连接；仅 bot 进程恢复（NapCat/QQ 不暴露）
+export ONEBOT_ACCESS_TOKEN="$ONEBOT_TOKEN_BACKUP"
 gosu napcat python bot.py
 
 # 10. Cleanup on exit

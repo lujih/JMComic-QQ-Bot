@@ -8,7 +8,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from jmcomic import Feature, jm_log
-from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFailException
+from jmcomic.jm_exception import MissingAlbumPhotoException, PartialDownloadFailedException, RequestRetryAllFailException
 from plugins.jm.cmd import jm_cmd
 from plugins.jm.progress import ProgressJmDownloader
 
@@ -54,6 +54,19 @@ def _get_dl_tmp() -> Path:
 def _cleanup_stale_dirs() -> int:
     now = time.time()
     total = 0
+    # 封面临时文件位于 tempfile 根目录（/tmp/jm_cover_*、/tmp/jm_mv_cover_*），不在常规缓存目录内
+    tmp_root = Path(tempfile.gettempdir())
+    try:
+        for entry in tmp_root.iterdir():
+            if not entry.is_file():
+                continue
+            if entry.name.startswith('jm_cover_') or entry.name.startswith('jm_mv_cover_'):
+                if now - entry.stat().st_mtime > _STALE_AGE:
+                    entry.unlink(missing_ok=True)
+                    total += 1
+    except OSError:
+        pass
+
     for d in [_get_dl_tmp(), _TMP_DIR]:
         if not d.exists():
             continue
@@ -253,10 +266,14 @@ async def _download_entity(
 
     if _is_cache_valid(out_path):
         from plugins.jm.upload import _upload_and_cleanup
-        await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name)
+        await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=None)
         return
 
-    dl_dir = _get_dl_tmp() / entity_id
+    # 清理目标从实体推导（Bd_Aid_Pid 下图片目录为 {base}/{album_id}/{photo_id}，专辑根为二者父目录）
+    if entity.is_album():
+        dl_dir = Path(option.dir_rule.decide_album_root_dir(entity))
+    else:
+        dl_dir = Path(option.decide_image_save_dir(entity)).parent
     try:
         async with _semaphore:
             out_path.unlink(missing_ok=True)
@@ -270,6 +287,18 @@ async def _download_entity(
         jm_log(f'{log_tag}.download', f'下载超时 ({entity_id})')
         _clear_cooldown(cooldown_key)
         await jm_cmd.finish("❌ 下载超时，请稍后再试")
+    except PartialDownloadFailedException as e:
+        cancel_event.set()
+        jm_log(f'{log_tag}.download', f'部分图片下载失败 ({entity_id}): {e}')
+        if out_path.exists() and out_path.stat().st_size > 0:
+            from plugins.jm.upload import _upload_and_cleanup
+            await jm_cmd.send("⚠️ 部分图片下载失败，文件已生成（可能缺图）")
+            await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=dl_dir)
+            return
+        out_path.unlink(missing_ok=True)
+        shutil.rmtree(dl_dir, ignore_errors=True)
+        _clear_cooldown(cooldown_key)
+        await jm_cmd.finish("❌ 下载失败（部分图片缺失），请稍后再试")
     except Exception as e:
         cancel_event.set()
         out_path.unlink(missing_ok=True)
@@ -279,11 +308,10 @@ async def _download_entity(
         await jm_cmd.finish("❌ 下载失败，请稍后再试")
 
     if not out_path.exists():
-        dl_dir = _get_dl_tmp() / entity_id
         if dl_dir.exists():
             shutil.rmtree(dl_dir, ignore_errors=True)
         _clear_cooldown(cooldown_key)
         await jm_cmd.finish(f"❌ {fmt_name} 生成失败，文件未找到")
 
     from plugins.jm.upload import _upload_and_cleanup
-    await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name)
+    await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=dl_dir)

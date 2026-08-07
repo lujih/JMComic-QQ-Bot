@@ -32,7 +32,7 @@ COPY requirements.txt /tmp/
 RUN pip install --no-cache-dir \
     -r /tmp/requirements.txt && \
     pip install --no-cache-dir --force-reinstall --no-deps \
-    "jmcomic @ git+https://github.com/lujih/JMComic-Crawler-Python.git@e3c7e40" && \
+    "jmcomic @ git+https://github.com/hect0x7/JMComic-Crawler-Python.git@e3c7e40" && \
     rm /tmp/requirements.txt
 
 COPY . /app/bot

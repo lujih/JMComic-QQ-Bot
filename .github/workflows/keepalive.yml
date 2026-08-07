@@ -11,4 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping HF Space
-        run: curl -sfI -o /dev/null --max-time 60 --retry 3 --retry-delay 20 https://cszx-jmcomic-qq-bot.hf.space/
+        run: |
+          URL="${{ vars.SPACE_URL }}"
+          if [ -z "$URL" ]; then
+            echo "::warning::SPACE_URL 未设置（fork 部署请在仓库 Settings → Variables 配置自己的 Space URL），跳过本次保活"
+            exit 0
+          fi
+          curl -sfI -o /dev/null --max-time 60 --retry 3 --retry-delay 20 "$URL" && echo "keepalive OK: $URL"

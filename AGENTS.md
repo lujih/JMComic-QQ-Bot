@@ -75,7 +75,7 @@ pip install -e path/to/JMComic-Crawler-Python
 - MV 搜索并行化：`_search.py` 三站改为 `concurrent.futures.ThreadPoolExecutor(max_workers=3)` 并行执行，每站独立超时互不阻塞
 - MV seeders/leechers 取反修复：Sukebei 表 `cols[-3]=seeders`、`cols[-2]=leechers`
 - MV 磁链搜索多格式兜底（`mv/handler.py`）：先搜原始（`PRED-485`）再搜去分隔（`pred485`），无短横输入时反推标准格式，三 query 并行（`asyncio.gather`），结果按 BTIH 去重合并
-- MV 资源控制：全局 `_mv_search_semaphore = Semaphore(2)` 限制并发 Chromium；每用户 15s 冷却 key `f"{user_id}:mv:{番号}"`；StealthyFetcher fetch 必须传 `retries=1`（默认 3 次会让超时弃置后的孤儿浏览器多活 ~2 分钟）；**勿设 `adaptive=True`**（无效配置，每次 fetch 还会建 sqlite storage 连接写库）
+- MV 资源控制：全局 `_mv_search_semaphore = Semaphore(2)` 限制并发 Chromium；三源结果 30min 内存缓存（`_av_info_cache`，翻页只重跑 sukebei 不重跑 Chromium）；每用户 15s 冷却 key `f"{user_id}:mv:{code}"`（仅三源搜索占用，缓存命中翻页不占）；StealthyFetcher fetch 必须传 `retries=1`（默认 3 次会让超时弃置后的孤儿浏览器多活 ~2 分钟）；**勿设 `adaptive=True`**（无效配置，每次 fetch 还会建 sqlite storage 连接写库）
 - 并发控制：全局 `asyncio.Semaphore(2)` 控制并发下载数
 - `wait_for` 超时后底层线程无法取消（Python 线程语义），可能游离。已移除超时重试循环避免并发写
 - 进度展示：下载前一次性展示本子详情（`album.py` 直接发送），不再通过下载器回调逐章推送
@@ -83,9 +83,10 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### jmcomic Feature 机制
 - 格式（PDF/ZIP/长图）通过 `Feature.export_*` 作为 `extra` 参数传入，不写在 `option.yml` plugin 段
-- `after_album` 下 `photo=None`，`filename_rule` 必须用 `A` 前缀（如 `Aid`）；单章下载用 `Pid`
+- `after_album` 下 `photo=None`，`filename_rule` 必须与缓存命名空间对齐：album 用 `'a{Aid}'`、photo 用 `'p{Pid}'`（f-string 规则，产出 `a{id}.pdf` 与 `_download_entity` 的 out_path 一致；**若只改 out_path 前缀不改 filename_rule，缓存检查与导出文件名不匹配 → 下载链路必坏**，历史 P0 回归教训）
+- `option.yml` 的 `dir_rule.rule` 必须含 `Pid`（`Bd_Aid_Pid`）：Bd_Aid 扁平目录下所有章节图片同目录，album 级导出插件会重复收集 N 倍（P0 数据损坏）
 - **zip 源图压缩**（`compress.py`）：`CompressZipFeature() + Feature.export_zip(...)` 组合（FeatureChain 按序执行，压缩须在 zip 前）；自适应档位 (60, 50)——实测源图解码质量高（q75 仅 -2%、q60 -13%），JPEG 对 zip 二次压缩收益 ≈ 图片压缩收益
-- 详见 jmcomic 库的 `AGENTS.md`
+- 详见 jmcomic 库的 `AGENTS.md`（实际无此文件，约束见上游 README）
 
 ### jm_scheduler 未复用 option 缓存
 - 最初 `jm_scheduler.py` 直接调用 `create_option_by_file(str(OPTION_PATH))`，与 `jm_option.py` 缓存单例不一致
@@ -155,8 +156,10 @@ pip install -e path/to/JMComic-Crawler-Python
 | 每日早 9:00 | 自动推送随机推荐 | 需 `.env` 配置 `TARGET_GROUPS` |
 
 ### 限制与行为
-- 15 秒冷却 key = `f"{user_id}:{album_id}"`；单章 `p{photo_id}`、`rank:{period}`、`random`、`jmc:{album_id}:{page}`、`mv:{番号}` 各自独立 key（help 无冷却；jmc 冷却含页码，否则翻页被冷却阻断）
-- 缓存文件带命名空间前缀：album=`a{id}.{ext}`、photo=`p{id}.pdf`（`_make_out_path` 由 `cache_prefix` 参数控制），避免 photo_id 与 album_id 数字碰撞互串；上传显示名仍为 `JM{id}.{ext}`
+- 15 秒冷却 key = `f"{user_id}:{album_id}"`；单章 `p{photo_id}`、`rank:{period}`、`random`、`jmc:{album_id}:{page}`、`jmv:{album_id}`、`jms:{关键词}`、`mv:{归一化番号}` 各自独立 key（help 无冷却；jmc 冷却含页码，否则翻页被冷却阻断；mv 冷却仅三源搜索占用，缓存命中翻页不占）
+- 缓存文件带命名空间前缀：album=`a{id}.{ext}`、photo=`p{id}.pdf`（`_make_out_path` 由 `cache_prefix` 参数控制，导出侧 `filename_rule` 同步用 `a{Aid}`/`p{Pid}`），避免 photo_id 与 album_id 数字碰撞互串；上传显示名仍为 `JM{id}.{ext}`
+- 下载清理目标从实体推导：album 用 `option.dir_rule.decide_album_root_dir(entity)`，photo 用 `option.decide_image_save_dir(entity).parent`（Bd_Aid_Pid 下二者均为 `{base}/{album_id}`），勿再按 entity_id 拼目录
+- 部分下载失败（`PartialDownloadFailedException`）：产物已生成则提示缺图并照常上传，不再删除/清冷却
 - `_is_cache_valid` 校验 `st_size > 0`（防 0 字节坏 PDF 被缓存命中）；下载失败/超时分支先清 `out_path` + `dl_dir` 再 finish；下载前也清残留 dl_dir（防孤儿线程旧文件被 `download.cache` 误判跳过）
 - message_id 去重 TTL 600s（覆盖 300s 下载 + 120s 上传最长窗口）；处理锁冲突时 `finish("正在下载中")` 并清冷却，不再静默丢弃
 - `/jm` 参数严格校验：仅接受 `p\d+` / 纯数字 / rank / random / help（`/jmx 438516`、`/jm 123 456` 一律格式提示，防误触发下载）
