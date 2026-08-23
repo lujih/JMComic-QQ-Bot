@@ -40,4 +40,4 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta:__legacy__"
 
 [tool.nonebot]
-plugins = ["plugins.jm", "plugins.mv", "plugins.jm_info", "plugins.jm_comment", "plugins.jm_scheduler"]
+plugins = ["plugins.jm", "plugins.mv", "plugins.jm_info", "plugins.jm_comment", "plugins.jm_scheduler", "plugins.jm_sauce"]
