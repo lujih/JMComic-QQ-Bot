@@ -33,7 +33,8 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
 | `option.yml` | jmcomic 配置（`impl: api` + `cache: false` + `proxies: null`，无 plugin 段，格式由 Feature 传入） |
 | `Dockerfile` | 基于 `mlikiowa/napcat-docker` + Python venv + ffmpeg |
-| `start.sh` | 容器入口：配置写入 → NapCat 解包 → Xvfb → QQ 后台 → NoneBot 前台 |
+| `start.sh` | 容器入口：配置写入 → NapCat 解包 → 会话恢复 → Xvfb → QQ 后台（含备份循环 + 登录 watchdog） → NoneBot 前台 |
+| `scripts/session_keeper.py` | QQ 会话持久化三合一：`restore`（启动时从快照恢复）/`backup`（每 10min 打包快照）/`watch`（掉线自动快登），仅标准库 |
 
 ## 开发命令
 
@@ -132,10 +133,18 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### 部署
 - 首次部署需通过 NapCat WebUI 扫码登录 QQ 小号
-- HF Spaces 磁盘为临时存储，Space 重启后需重新扫码
+- HF Spaces 磁盘为临时存储；QQ 会话经 Storage Buckets 持久化后，容器重启可自动快登恢复（见下节），仅腾讯风控强制验证时才需重新扫码
 - 端口中：7860（HF Spaces 默认 → WebUI）、8080（内部 NoneBot WS 服务器）
 - 防休眠：双保险 — GitHub Actions（`.github/workflows/keepalive.yml`，每 24h 一次，推 GitHub main 生效）+ bot 内 `space_keepalive` job（每 24h，`SPACE_URL` 环境变量可覆盖默认 URL）；HF 休眠窗口 48h，两者互备，任一失效 48h 后会休眠
 - 休眠后首次 ping 需冷启动（1-2 分钟），keepalive curl 已带 `--retry 3 --retry-delay 20` 兜底
+
+### QQ 会话持久化（Storage Buckets）
+- Space Settings 挂载私有 bucket 到 `/data`（read-write）+ Secrets 配置 `ACCOUNT`=QQ 号；未挂载时各环节静默跳过，行为退回首次部署模式
+- 混合模式：QQ 工作目录始终在本地磁盘，bucket 只存 `qq_session.tar.gz` 快照 —— **勿把 `/app/.config/QQ` 直接指到挂载点**，`nt_qq.db` 是 SQLite，跑在对象存储 FUSE 上有锁/损坏风险
+- 链路：启动早期 `restore`（解压校验含 `nt_qq.db` 才换入，防半包污染）→ 后台循环每 10min `backup`（mtime 变化检测 + tmp 文件原子 replace）→ `watch` 每 2min 轮询 WebUI 登录状态，掉线自动调 QuickLogin API
+- watchdog 参数：宽限 5min（避开正常登录耗时）、连续 2 次未登录才动手、最多快登 12 次（约 24min）后放弃并打人工扫码提示 —— 风控强制验证时自动化到不了，属预期边界
+- NapCat WebUI API 鉴权链路（v4.18.7）：token 不能直传；`hash = sha256_hex(token + ".napcat")` → `POST /api/auth/login {"hash"}` 换 1h 有效 Credential → `Authorization: Bearer <Credential>`；`POST /api/QQLogin/CheckLoginStatus` 查状态、`POST /api/QQLogin/SetQuickLogin {"uin"}` 快登；`/auth/login` 有 60s 窗口 3 次限速（watchdog 每轮复用 credential 不触顶）
+- 打包排除 `log/cache/temp/GPUCache` 等缓存目录控体积；快照含登录凭证，bucket 必须私有
 
 ## 命令
 
