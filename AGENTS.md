@@ -164,12 +164,13 @@ pip install -e path/to/JMComic-Crawler-Python
 | `/jmc <ID> [页码]` | 查看本子评论 | `/jmc 438516 2` |
 | `/mv <番号>` | 搜索番号（三源并行: MissAV+JavDB+jav321 + Sukebei 磁力链）返回磁力链接 | `/mv SSNI-123` |
 | `/mv <番号> --page N` | 翻页 | `/mv SSNI-123 --page 2` |
-| `/ss` +图片/回复图片 | 以图搜源（本子/动画/通用真人） | 附图发 `/ss` 或回复图片消息发 `/ss` |
+| `/ss` +图片/回复图片 | 以图搜源（本子/动画/通用真人） | 附图发 `/ss`、回复图片消息发 `/ss`，或发图后 2 分钟内裸发 `/ss`（自动取本群最近一张） |
 | 每日早 9:00 | 自动推送随机推荐 | 需 `.env` 配置 `TARGET_GROUPS` |
 
 ### 限制与行为
 - 15 秒冷却 key = `f"{user_id}:{album_id}"`；单章 `p{photo_id}`、`rank:{period}`、`random`、`jmc:{album_id}:{page}`、`jmv:{album_id}`、`jms:{关键词}`、`mv:{归一化番号}`、`ss:{user_id}` 各自独立 key（help 无冷却；jmc 冷却含页码，否则翻页被冷却阻断；mv 冷却仅三源搜索占用，缓存命中翻页不占；ss 冷却按用户，无图时立即清冷却）
 - `/ss` 四源并行：Ascii2d（multipart `/search/file`→302 color 页→bovw 优先）、SoutuBot（`X-Api-Key = reverse(base64(ts²+uaLen²+m))` 轻量签名，m 从主页 JS 抓取，401/403 自动刷新重试一次）、trace.moe（`anilistInfo` 一次拿标题/EP/时间点，全局滑窗 100 次/时保护）、Yandex（URL 模式 `rpt=imageview&url=`，captcha 即静默降级）；单源失败互不影响（`_safe` 吞异常记日志）；JM 匹配取 Ascii2d/SoutuBot 首条标题 `search_site` 后给疑似 ID + `/jm <id>` 提示；全局 `Semaphore(2)`；UA 常量长度恒定（SoutuBot 签名依赖 uaLen）；nonebot `Message` 是 list 子类，图片提取按元素类型 duck-typing 区分 segment/dict
+- `/ss` 取图三级兜底：附图 url → 回复消息（`get_msg`→url 缺失时取 image `data.file` 调 OneBot `get_image` 换 url，仍不行读其返回的 NapCat 本地缓存路径——与 NoneBot 同容器直接读字节）→ 群最近图记忆（`_img_recorder` 被动 listener 实时缓存每群最近 5 张/TTL 120s，裸发 `/ss` 自动用）；回复取图失败**不降级**到最近图（用户意图指向特定图片）；历史消息图片常无 http url 是 NapCat 已知行为，勿删 get_image 兜底
 - 缓存文件带命名空间前缀：album=`a{id}.{ext}`、photo=`p{id}.pdf`（`_make_out_path` 由 `cache_prefix` 参数控制，导出侧 `filename_rule` 同步用 `a{Aid}`/`p{Pid}`），避免 photo_id 与 album_id 数字碰撞互串；上传显示名仍为 `JM{id}.{ext}`
 - 下载清理目标从实体推导：album 用 `option.dir_rule.decide_album_root_dir(entity)`，photo 用 `option.decide_image_save_dir(entity).parent`（Bd_Aid_Pid 下二者均为 `{base}/{album_id}`），勿再按 entity_id 拼目录
 - 部分下载失败（`PartialDownloadFailedException`）：产物已生成则提示缺图并照常上传，不再删除/清冷却

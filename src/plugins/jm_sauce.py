@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
-from nonebot import on_command
+from nonebot import on_command, on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 from nonebot.rule import is_type
 from scrapling.parser import Selector
@@ -19,7 +19,7 @@ from jm_option import get_option as _get_option
 from plugins.jm.common import _check_cooldown, _clear_cooldown
 
 __plugin_name__ = "jm_sauce"
-__plugin_usage__ = "/ss — 以图搜源（附图发送或回复图片消息）"
+__plugin_usage__ = "/ss — 以图搜源（附图 / 回复含图消息 / 裸发自动用本群 2 分钟内最近一张图）"
 
 ss_cmd = on_command("ss", priority=10, rule=is_type(GroupMessageEvent))
 
@@ -46,44 +46,134 @@ _SOUTU_SOURCE_HOSTS = {
 }
 
 
-def _extract_image_url(message) -> str | None:
-    """从 Message 对象或 OneBot array 格式的 list 中提取图片 URL。
+def _iter_image_data(message):
+    """产出每个 image 段的 data dict（Message 对象与 OneBot array 格式通吃）。
 
     注意 nonebot 的 Message 是 list 子类，故按元素类型区分而非容器类型。
     """
     if message is None:
-        return None
-    segments = []
+        return
     try:
-        for seg in message:
-            if isinstance(seg, dict):
-                segments.append(seg)
-            else:
-                segments.append({"type": seg.type, "data": dict(seg.data)})
-    except Exception:
-        return None
-    for seg in segments:
-        if seg.get("type") == "image":
-            data = seg.get("data") or {}
-            url = data.get("url") or data.get("file")
-            if url and str(url).startswith("http"):
-                return str(url)
+        items = list(message)
+    except TypeError:
+        return
+    for seg in items:
+        if isinstance(seg, dict):
+            data = seg.get("data")
+            if seg.get("type") == "image" and isinstance(data, dict):
+                yield data
+        else:
+            if getattr(seg, "type", None) == "image":
+                data = getattr(seg, "data", None)
+                if isinstance(data, dict):
+                    yield data
+
+
+def _extract_image_url(message) -> str | None:
+    for d in _iter_image_data(message):
+        url = str(d.get("url") or "").strip()
+        if url.startswith("http"):
+            return url
     return None
 
 
-async def _resolve_image_url(bot: Bot, event: GroupMessageEvent) -> str | None:
+def _extract_image_file(message) -> str | None:
+    for d in _iter_image_data(message):
+        fid = str(d.get("file") or "").strip()
+        if fid:
+            return fid
+    return None
+
+
+_RECENT_IMAGES: dict[int, deque] = {}
+_RECENT_TTL = 120
+_RECENT_MAX = 5
+
+
+def _record_group_image(event: GroupMessageEvent):
+    """实时消息中的图片记入群级最近图缓存（供裸发 /ss 使用）。"""
+    try:
+        gid = int(event.group_id)
+    except Exception:
+        return
+    for d in _iter_image_data(event.message):
+        url = str(d.get("url") or "").strip()
+        if not url.startswith("http"):
+            continue
+        dq = _RECENT_IMAGES.setdefault(gid, deque())
+        if not dq or dq[-1][1] != url:
+            dq.append((time.time(), url))
+            while len(dq) > _RECENT_MAX:
+                dq.popleft()
+        break
+
+
+def _recent_group_image(group_id: int) -> str | None:
+    dq = _RECENT_IMAGES.get(group_id)
+    now = time.time()
+    while dq and now - dq[0][0] > _RECENT_TTL:
+        dq.popleft()
+    return dq[-1][1] if dq else None
+
+
+async def _get_image_fallback(bot: Bot, file_id: str):
+    """OneBot get_image 兜底：优先换 http url，其次读 NapCat 本地缓存路径（与 NoneBot 同容器）。"""
+    try:
+        info = await bot.call_api("get_image", file=file_id)
+    except Exception as e:
+        jm_log('jm.sauce', f'get_image 失败(file={file_id[:40]}): {e}')
+        return None
+    info = info or {}
+    url = str(info.get("url") or "").strip()
+    if url.startswith("http"):
+        return ("url", url)
+    path = str(info.get("file") or "").strip()
+    if path and os.path.isfile(path) and os.path.getsize(path) > 0:
+        return ("path", path)
+    jm_log('jm.sauce', f'get_image 返回不可用（url 空/路径无效）: {info}')
+    return None
+
+
+async def _resolve_image(bot: Bot, event: GroupMessageEvent):
+    """返回 ("url", value) / ("path", value)；取不到图时返回 (None, 提示语)。"""
+    # 1. 当前消息附图
     url = _extract_image_url(event.message)
     if url:
-        return url
-    reply_seg = next((seg for seg in event.message if seg.type == "reply"), None)
-    if reply_seg is None:
-        return None
-    try:
-        src = await bot.get_msg(message_id=int(reply_seg.data["id"]))
-    except Exception as e:
-        jm_log('jm.sauce', f'获取被回复消息失败: {reply_seg.data["id"]}', e)
-        return None
-    return _extract_image_url(src.get("message"))
+        return ("url", url)
+
+    # 2. 回复引用的消息：get_msg → url → get_image → 本地路径。
+    #    任一环节失败即终止并提示——不降级到最近图（用户意图明确指向被回复的那张图）。
+    reply_seg = next((seg for seg in event.message if getattr(seg, "type", None) == "reply"), None)
+    if reply_seg is not None:
+        try:
+            rid = int(str(reply_seg.data.get("id", "")).strip() or 0)
+        except (ValueError, AttributeError, KeyError):
+            rid = 0
+        if rid <= 0:
+            jm_log('jm.sauce', f'reply 段缺少有效 id: {dict(reply_seg.data)}')
+            return (None, "回复目标无效，无法定位图片")
+        try:
+            src = await bot.get_msg(message_id=rid)
+        except Exception as e:
+            jm_log('jm.sauce', f'获取被回复消息失败(id={rid}): {e}')
+            return (None, f"获取被回复消息(id={rid})失败，请改为随命令附图后重试")
+        src_msg = src.get("message") if isinstance(src, dict) else getattr(src, "message", None)
+        url = _extract_image_url(src_msg)
+        if url:
+            return ("url", url)
+        fid = _extract_image_file(src_msg)
+        jm_log('jm.sauce', f'被回复消息(id={rid})无 http 图片 url(file={fid})，走 get_image 兜底')
+        if fid:
+            got = await _get_image_fallback(bot, fid)
+            if got:
+                return got
+        return (None, f"被回复的消息(id={rid})中未找到可用图片")
+
+    # 3. 群内最近图片记忆（裸发 /ss）
+    rurl = _recent_group_image(int(event.group_id))
+    if rurl:
+        return ("url", rurl)
+    return (None, "未找到可用图片：请随命令附图、回复一条含图的消息，或在本群发图后 2 分钟内裸发 /ss")
 
 
 async def _fetch_image(client: httpx.AsyncClient, url: str) -> bytes:
@@ -265,6 +355,8 @@ def _parse_yandex(html: str):
 
 
 async def _search_yandex(client: httpx.AsyncClient, image_url: str):
+    if not image_url:
+        return []
     url = f"https://yandex.com/images/search?rpt=imageview&url={quote(image_url, safe='')}"
     resp = await client.get(url, headers={"User-Agent": _UA}, timeout=30)
     if "captcha" in resp.text.lower():
@@ -299,22 +391,28 @@ async def handle_ss(bot: Bot, event: GroupMessageEvent):
     if remaining:
         await ss_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
 
-    image_url = await _resolve_image_url(bot, event)
-    if not image_url:
+    kind, value = await _resolve_image(bot, event)
+    if kind is None:
         _clear_cooldown(cooldown_key)
-        await ss_cmd.finish("用法: /ss 并随命令附上图片，或回复一条含图片的消息后发送 /ss")
+        await ss_cmd.finish(value)
         return
 
     await ss_cmd.send("🔍 正在反查图片来源（Ascii2d / SoutuBot / trace.moe / Yandex）……")
 
     async with _ss_semaphore:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            img_bytes = await _fetch_image(client, image_url)
+            if kind == "path":
+                with open(value, "rb") as f:
+                    img_bytes = f.read()
+                probe_url = ""
+            else:
+                img_bytes = await _fetch_image(client, value)
+                probe_url = value
             a2d, soutu, tm, yx = await asyncio.gather(
                 _safe("ascii2d", _search_ascii2d(client, img_bytes)),
                 _safe("soutubot", _search_soutubot(client, img_bytes)),
                 _safe("tracemoe", _search_tracemoe(client, img_bytes)),
-                _safe("yandex", _search_yandex(client, image_url)),
+                _safe("yandex", _search_yandex(client, probe_url)),
             )
 
     jm_hit = None
@@ -359,3 +457,12 @@ async def handle_ss(bot: Bot, event: GroupMessageEvent):
         await ss_cmd.finish("❌ 各数据源均未找到相似结果")
 
     await ss_cmd.finish("\n".join(lines))
+
+
+_img_recorder = on_message(priority=5, block=False, rule=is_type(GroupMessageEvent))
+
+
+@_img_recorder.handle()
+async def handle_record_image(event: GroupMessageEvent):
+    """被动记录群内图片消息，供裸发 /ss 时取「本群最近一张图」。"""
+    _record_group_image(event)
