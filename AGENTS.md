@@ -142,11 +142,13 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### QQ 会话持久化（Storage Buckets）
 - Space Settings 挂载私有 bucket 到 `/data`（read-write）+ Secrets 配置 `ACCOUNT`=QQ 号；未挂载时各环节静默跳过，行为退回首次部署模式
-- 混合模式：QQ 工作目录始终在本地磁盘，bucket 只存 `qq_session.tar.gz` 快照 —— **勿把 `/app/.config/QQ` 直接指到挂载点**，`nt_qq.db` 是 SQLite，跑在对象存储 FUSE 上有锁/损坏风险
-- 链路：启动早期 `restore`（解压校验含 `nt_qq.db` 才换入，防半包污染）→ 后台循环每 10min `backup`（mtime 变化检测 + tmp 文件原子 replace）→ `watch` 每 2min 轮询 WebUI 登录状态，掉线自动调 QuickLogin API
-- watchdog 参数：宽限 5min（避开正常登录耗时）、连续 2 次未登录才动手、最多快登 12 次（约 24min）后放弃并打人工扫码提示 —— 风控强制验证时自动化到不了，属预期边界
+- 混合模式：QQ 工作目录始终在本地磁盘，bucket 只存 `qq_session.tar.gz` 快照 —— **勿把 `/app/.config/QQ` 直接指到挂载点**，NTQQ 数据库是 SQLite，跑在对象存储 FUSE 上有锁/损坏风险
+- NTQQ 真实目录布局（NapCat v4.18.7 实测）：`{dataPath}/nt_qq/global/` 全局配置（**QQ 启动即创建，非登录证据**）；账号数据在 `{dataPath}/nt_qq_<hash>/`（内含 `nt_qq/nt_db/nt_msg.db` 等 SQLite 与 `nt_data/` 媒体缓存）——登录凭证判据 = `nt_qq_<hash>/` 目录存在，**不存在 `nt_qq.db` 这个文件**
+- 链路：启动早期 `restore`（解压校验含 `nt_qq_*` 账号数据才换入，防半包污染）→ 后台循环每 10min `backup`（mtime 变化检测 + tmp 文件原子 replace）→ `watch` 每 2min 轮询 WebUI 登录状态，掉线自动调 QuickLogin API
+- watchdog 参数：宽限 5min（避开正常登录耗时）、连续 2 次未登录才动手、最多快登 12 次（约 24min）后放弃并打人工扫码提示 —— 风控强制验证时自动化到不了，属预期边界；本地无 `nt_qq_*` 时首次快登前即放弃（新容器无凭证，快登注定失败）
 - NapCat WebUI API 鉴权链路（v4.18.7）：token 不能直传；`hash = sha256_hex(token + ".napcat")` → `POST /api/auth/login {"hash"}` 换 1h 有效 Credential → `Authorization: Bearer <Credential>`；`POST /api/QQLogin/CheckLoginStatus` 查状态、`POST /api/QQLogin/SetQuickLogin {"uin"}` 快登；`/auth/login` 有 60s 窗口 3 次限速（watchdog 每轮复用 credential 不触顶）
-- 打包排除 `log/cache/temp/GPUCache` 等缓存目录控体积；快照含登录凭证，bucket 必须私有
+- 打包排除 `log/cache/temp/GPUCache/nt_data` 等缓存与媒体目录控体积（`nt_data` 是聊天图片/视频缓存会膨胀到 GB 级）；快照含登录凭证，bucket 必须私有
+- 已知失效但无害：`start.sh` 的 `sync_onebot11_config` 仍按旧布局扫 `<uin>/nt_qq.db`，永不命中——单账号下默认 `onebot11.json` 已足够（token 在写入通用配置时注入），多账号场景才需重写该函数
 
 ## 命令
 

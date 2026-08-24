@@ -19,7 +19,8 @@ import tarfile
 import time
 import urllib.request
 
-EXCLUDE_DIRS = {"log", "logs", "cache", "Cache", "CodeCache", "GPUCache", "Crashpad", "temp", "tmp"}
+EXCLUDE_DIRS = {"log", "logs", "cache", "Cache", "CodeCache", "GPUCache", "Crashpad", "temp", "tmp",
+                "nt_data"}
 
 
 def log(msg):
@@ -42,7 +43,19 @@ def describe_mount(mount_dir):
 
 
 def has_login_data(qq_dir):
+    """判定 qq_dir 是否含 NTQQ 登录数据。
+
+    真实布局(NapCat 源码 + Issue #886 实测):账号级数据在 nt_qq_<hash>/ 目录
+    (内含 nt_qq/nt_db/ 数据库),仅登录过才会出现;裸 nt_qq/(全局配置)QQ 启动
+    即创建,不能作为登录证据。nt_qq.db 文件判据仅作历史兜底。
+    """
     if not os.path.isdir(qq_dir):
+        return False
+    try:
+        for entry in os.scandir(qq_dir):
+            if entry.is_dir() and entry.name.startswith("nt_qq_"):
+                return True
+    except OSError:
         return False
     if os.path.isfile(os.path.join(qq_dir, "nt_qq.db")):
         return True
@@ -76,7 +89,7 @@ def cmd_restore(args):
         shutil.rmtree(tmp, ignore_errors=True)
         return 1
     if not has_login_data(tmp):
-        log("快照中无登录数据(nt_qq.db),放弃恢复")
+        log("快照中无账号登录数据(nt_qq_*),放弃恢复")
         shutil.rmtree(tmp, ignore_errors=True)
         return 1
     old = qq_dir + ".old"
@@ -205,7 +218,7 @@ def cmd_watch(args):
                 f"请打开 WebUI 扫码:{base}(扫码成功后新会话会自动进入备份)")
             return 1
         if attempts == 0 and not has_login_data(args.qq_dir):
-            log(f"本地无登录凭证(nt_qq.db 缺失于 {args.qq_dir}),快速登录不可用,"
+            log(f"本地无账号登录数据(nt_qq_* 缺失于 {args.qq_dir}),快速登录不可用,"
                 f"请打开 WebUI 扫码:{base}(扫码成功后新会话会自动进入备份)")
             return 1
         attempts += 1
