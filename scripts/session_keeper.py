@@ -26,6 +26,21 @@ def log(msg):
     print(f"[session] {msg}", flush=True)
 
 
+def describe_mount(mount_dir):
+    """区分「未配置 Volume Mount」「已挂载但为空」「不可读」三种状态,便于排查 bucket 空问题。"""
+    if not os.path.exists(mount_dir):
+        return "挂载点不存在(未配置 Volume Mount)"
+    if not os.path.isdir(mount_dir):
+        return "挂载点不是目录"
+    try:
+        n = len(os.listdir(mount_dir))
+    except OSError as e:
+        return f"挂载点不可读: {e}"
+    if n == 0:
+        return "已挂载但为空"
+    return f"挂载正常({n} 个条目)"
+
+
 def has_login_data(qq_dir):
     if not os.path.isdir(qq_dir):
         return False
@@ -47,7 +62,7 @@ def _tar_filter(tarinfo):
 def cmd_restore(args):
     snap, qq_dir = args.snapshot, args.qq_dir
     if not os.path.isfile(snap):
-        log(f"无会话快照({snap} 未挂载或为空),按首次部署处理")
+        log(f"无会话快照({snap});{describe_mount(os.path.dirname(snap) or '/')},按首次部署处理")
         return 0
     tmp = qq_dir + ".restore_tmp"
     shutil.rmtree(tmp, ignore_errors=True)
@@ -90,7 +105,7 @@ def _changed_since(qq_dir, base_mtime):
 def cmd_backup(args):
     snap, qq_dir = args.snapshot, args.qq_dir
     if not os.path.isdir(os.path.dirname(snap)):
-        log(f"快照挂载不可用({snap}),跳过备份")
+        log(f"快照挂载不可用({snap}):{describe_mount(os.path.dirname(snap))},跳过备份")
         return 0
     if not has_login_data(qq_dir):
         return 0
@@ -189,6 +204,10 @@ def cmd_watch(args):
             log(f"⚠️ 快速登录已连续尝试 {attempts} 次仍未上线,疑似触发风控需要人工验证,"
                 f"请打开 WebUI 扫码:{base}(扫码成功后新会话会自动进入备份)")
             return 1
+        if attempts == 0 and not has_login_data(args.qq_dir):
+            log(f"本地无登录凭证(nt_qq.db 缺失于 {args.qq_dir}),快速登录不可用,"
+                f"请打开 WebUI 扫码:{base}(扫码成功后新会话会自动进入备份)")
+            return 1
         attempts += 1
         try:
             _api_post(base, cred, "/api/QQLogin/SetQuickLogin", {"uin": account})
@@ -214,6 +233,7 @@ def main():
     p = sub.add_parser("watch")
     p.add_argument("--webui", default="http://127.0.0.1:7860")
     p.add_argument("--config", default="/app/napcat/config/webui.json")
+    p.add_argument("--qq-dir", default="/app/.config/QQ")
     p.add_argument("--account", default=os.getenv("ACCOUNT", ""))
     p.add_argument("--interval", type=int, default=120)
     p.add_argument("--grace", type=int, default=300)

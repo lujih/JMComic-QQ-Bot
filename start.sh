@@ -59,7 +59,7 @@ mkdir -p /app/.config/QQ/NapCat/temp
 mkdir -p /app/.cache
 chown -R napcat:napcat /app/.config/QQ /app/.cache 2>/dev/null || { echo "[start] WARNING: chown for /app/.config/QQ or /app/.cache failed" >&2; }
 
-# 3b. Restore QQ session from Storage Bucket snapshot (bucket mounted at /data; skip silently if absent)
+# 3b. Restore QQ session from Storage Bucket snapshot (bucket mounted at /data; logs mount status when absent)
 SESSION_SNAPSHOT=/data/qq_session.tar.gz
 python3 /app/bot/scripts/session_keeper.py restore --qq-dir /app/.config/QQ --snapshot "$SESSION_SNAPSHOT" || true
 mkdir -p /app/.config/QQ/NapCat/temp
