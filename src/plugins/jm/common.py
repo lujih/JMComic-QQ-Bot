@@ -7,7 +7,7 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 
-from jmcomic import Feature, jm_log
+from jmcomic import Feature, jm_log, jm_task_context
 from jmcomic.jm_exception import MissingAlbumPhotoException, PartialDownloadFailedException, RequestRetryAllFailException
 from plugins.jm.cmd import jm_cmd
 from plugins.jm.progress import ProgressJmDownloader
@@ -217,7 +217,6 @@ async def _download_entity(
     make_info_msg,
     extra,
     download_method_fn,
-    dler_tag: str,
     dl_timeout: int,
     ext: str,
     fmt_name: str,
@@ -261,8 +260,20 @@ async def _download_entity(
             return
         dler = ProgressJmDownloader(option, cancel_event=cancel_event)
         async with dler:
-            dler.add_features(extra, dler_tag)
-            await download_method_fn(dler, entity)
+            # jmcomic ≥2.7.4 起，Feature 的执行时机由 TaskContext 的 download_type 决定，
+            # add_features 不再接受 feature_from 参数，且必须在 jm_task_context 内调用。
+            # begin_manifest/finish_manifest 不可省：导出插件（img2pdf/zip/long_img）会通过
+            # downloader.record_export_filepath 把产物登记进清单，缺清单时插件直接抛
+            # 「当前实体没有活动的下载清单」——而该异常会被 _invoke_features_for 吞进日志，
+            # 表现为「下载成功但 PDF/ZIP 没生成」，是极难排查的静默失败。
+            dtype = 'album' if entity.is_album() else 'photo'
+            with jm_task_context(download_type=dtype, jm_id=str(entity_id)):
+                dler.begin_manifest(entity)
+                try:
+                    dler.add_features(extra)
+                    await download_method_fn(dler, entity)
+                finally:
+                    dler.finish_manifest(entity)
             dler.raise_if_has_exception()
 
     if _is_cache_valid(out_path):

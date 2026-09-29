@@ -86,10 +86,12 @@ class CompressZipFeature(Feature):
     禁漫图片解码后为 JPEG；按 (60, 50) 逐档尝试，均未减小则保留原图。
     """
 
-    def should_invoke(self, feature_from: str, when: str) -> bool:
-        return feature_from == 'download_album' and when == 'after_album'
+    def should_invoke(self, when: str) -> bool:
+        # jmcomic ≥2.7.4：should_invoke/invoke 不再接收 feature_from，
+        # 执行时机只看钩子名，下载类型由 TaskContext.download_type 决定
+        return when == 'after_album'
 
-    def invoke(self, option, feature_from: str, when: str, **kwargs):
+    def invoke(self, option, when: str, **kwargs):
         album = kwargs.get('album')
         if album is None:
             return

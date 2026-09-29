@@ -45,7 +45,6 @@ async def _download_album(bot, event, album_id: str, cooldown_key: str, fmt=_DEF
             make_info_msg=make_info_msg,
             extra=extra,
             download_method_fn=_dl_by_album,
-            dler_tag='download_album',
             dl_timeout=300,
             ext=ext,
             fmt_name=fmt_name,

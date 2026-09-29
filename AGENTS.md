@@ -60,7 +60,7 @@ pip install -e path/to/JMComic-Crawler-Python
 ### Dockerfile / start.sh
 - 基镜像 `mlikiowa/napcat-docker` 有 `ENTRYPOINT ["bash", "entrypoint.sh"]`，必须用 `ENTRYPOINT []` 清掉；镜像固定 `:v4.18.7`，勿改回 `:latest`（上游漂移会破坏构建）
 - `NapCat.Shell.zip` 在 Dockerfile 构建时已解压到 `/app/napcat/`，`start.sh` 仅在 `napcat.mjs` 缺失时兜底解压
-- Docker 中实际运行的 jmcomic 不是 `requirements.txt` 的版本：`pip install --force-reinstall --no-deps "jmcomic @ git+...@e3c7e40"`（钉 commit，获取 P0 修复且保证可复现；升级 jmcomic 须改 commit 并跑上游 tests）
+- Docker 中实际运行的 jmcomic 不是 `requirements.txt` 的版本：`pip install --force-reinstall --no-deps "jmcomic @ git+...@5a3f627"`（钉 commit，获取 P0 修复且保证可复现；升级 jmcomic 须改 commit 并跑上游 tests）
 - StealthyFetcher 需 Chromium：`ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright` 后 `pip install "playwright==1.61.0" "patchright==1.61.2" && python -m playwright install chromium && python -m patchright install chromium`（两个 install 都跑：patchright 与 playwright 的 chromium revision 可能不同，共用路径同 revision 幂等；路径必须与运行期一致——gosu napcat 的 HOME=/app，构建期默认 HOME=/root 会错位导致浏览器找不到）
 - **浏览器层在 pip 层之前**（只依赖 venv 层）：requirements.txt 变更不触发 Chromium 重下（省 ~2.5min/次）；apt 层一次性装齐 chromium 系统依赖（勿用 `install-deps`，它会再跑一轮 apt 下载 ubuntu 源，HF 构建器访问该源极慢）
 - `nonebot2` 须安装 `[fastapi]` extras（纯包缺 fastapi）
@@ -90,6 +90,18 @@ pip install -e path/to/JMComic-Crawler-Python
 - `option.yml` 的 `dir_rule.rule` 必须含 `Pid`（`Bd_Aid_Pid`）：Bd_Aid 扁平目录下所有章节图片同目录，album 级导出插件会重复收集 N 倍（P0 数据损坏）
 - **zip 源图压缩**（`compress.py`）：`CompressZipFeature() + Feature.export_zip(...)` 组合（FeatureChain 按序执行，压缩须在 zip 前）；自适应档位 (60, 50)——实测源图解码质量高（q75 仅 -2%、q60 -13%），JPEG 对 zip 二次压缩收益 ≈ 图片压缩收益
 - 详见 jmcomic 库的 `AGENTS.md`（实际无此文件，约束见上游 README）
+
+### jmcomic ≥2.7.4 Feature/TaskContext 契约（升级必读）
+上游 2.7.4 移除了 `feature_from` 机制，Feature 的执行时机改由 `TaskContext.download_type` 判定，带来三个**静默失败**级别的破坏点：
+
+- **`add_features(features, feature_from)` → `add_features(features)`**：仍传第二个参数直接 `TypeError`，下载整条链路挂掉（显式报错，容易发现）
+- **必须包在 `jm_task_context(download_type=...)` 里调用**：`add_features` 内的 `_require_feature_context()` 会校验 `download_type in ('album','photo')`，缺失即 raise
+- **必须 `begin_manifest()` / `finish_manifest()`**：导出插件（img2pdf/zip/long_img）在产出后会调 `downloader.record_export_filepath()` 登记产物；没有活动 manifest 时抛「当前实体没有活动的下载清单」，而该异常被 `_invoke_features_for` 的 try/except **吞进日志** → 表现为「下载成功但 PDF/ZIP 根本没生成」，极难排查
+  - 本项目不走 `api.download_album_async`（会丢掉预取好的 entity、丢掉 `cancel_event` 注入、丢掉外层 `async with`），而是直接在 `common.py::_download_entity` 的 `_dl()` 里手工包：`with jm_task_context(download_type=..., jm_id=...): begin_manifest → add_features(extra) → await download_method_fn(...) → finally finish_manifest`
+- **自定义 Feature 的钩子签名同步收窄**：`should_invoke(self, when)` / `invoke(self, option, when, **kwargs)`（`compress.py::CompressZipFeature` 已适配，只判 `when == 'after_album'`）
+- **上游对本项目的正向收益**：API `page_count` 改映射 `total_photos`（旧版硬写 `'0'`，`/jmv` 与 `/jm` 详情里"总页数"曾恒为 0）、`pub_date` 改映射 `addtime`；缓存命中的图片现在也记入 `download_success_dict`（旧版 `image.cache and image.exists` 直接 return，导出会漏图）；`RequestRetryAllFailException` 保留各域名原始异常便于排查；移动端 `APP_VERSION` 2.0.30 → 2.1.7
+- **不要用的新特性**：`is_favorite`/`liked` 是**登录态字段**，匿名 API 客户端恒为 False，别加进 `/jmv`；签到打卡、收藏夹导出、Calibre 元数据、`download_progress`(rich) 插件本项目用不上；`plugins.dependencies_strategy` 默认 `failed-fast` 只扫 option 里**声明**的插件，`option.yml` 无 `plugins` 段 + `Feature.export_*` 运行时动态注册 → 启动期不会触发检查，安全
+- **新失败模式监控点**：`post_adapt_album` 现在直接读 `data['total_photos']` / `data['addtime']`（旧代码无条件写 `'0'`），这两个字段缺失会让 `get_album_detail` KeyError，波及 `/jm`、`/jmv`、`/jm rank`、`/jm random` 全热路径，灰度时优先盯这条
 
 ### jm_scheduler 未复用 option 缓存
 - 最初 `jm_scheduler.py` 直接调用 `create_option_by_file(str(OPTION_PATH))`，与 `jm_option.py` 缓存单例不一致
