@@ -72,6 +72,18 @@ def _tar_filter(tarinfo):
     return tarinfo
 
 
+def _is_link(tarinfo):
+    """链接类成员：符号链接、硬链接、设备、FIFO、socket。
+
+    restore 以容器 root 跑在 QQ 拉起之前，成员过滤原本只查「绝对路径 / 含 ..」，
+    不拦链接：构造一个先放 `x -> /app/bot/start.sh` 符号链接、再放同名普通文件 `x`
+    的 tar，tarfile 会先建链接再顺着它写入，落成容器内任意路径的 root 写。
+    快照是自己打自己解的（backup 只用 tf.add），本来就不含链接，直接丢弃即可。
+    """
+    return (tarinfo.issym() or tarinfo.islnk() or tarinfo.ischr()
+            or tarinfo.isblk() or tarinfo.isfifo() or tarinfo.isdev())
+
+
 def cmd_restore(args):
     snap, qq_dir = args.snapshot, args.qq_dir
     if not os.path.isfile(snap):
@@ -82,8 +94,17 @@ def cmd_restore(args):
     try:
         with tarfile.open(snap, "r:gz") as tf:
             members = [m for m in tf.getmembers()
-                       if not m.name.startswith("/") and ".." not in m.name.split("/")]
-            tf.extractall(tmp, members=members)
+                       if not m.name.startswith("/")
+                       and ".." not in m.name.split("/")
+                       and not _is_link(m)]
+            if not members:
+                raise ValueError("快照内没有任何可恢复的成员")
+            try:
+                # Python 3.12+ 的官方加固过滤器：拒绝链接/设备/越权路径。
+                # 老版本 fallback 到上面的成员级过滤（已覆盖链接这一类）。
+                tf.extractall(tmp, members=members, filter="data")
+            except TypeError:
+                tf.extractall(tmp, members=members)
     except Exception as e:
         log(f"快照解压失败(可能损坏),放弃恢复: {e}")
         shutil.rmtree(tmp, ignore_errors=True)

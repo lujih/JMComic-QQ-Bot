@@ -3,6 +3,7 @@ import os
 import re
 import tempfile
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 import httpx
@@ -19,15 +20,29 @@ from plugins.mv._torrent import search as search_torrent
 # 限制同时存活的 Chromium 数（每命令 MissAV/JavDB 各拉起 1 个 headless 浏览器）
 _mv_search_semaphore = asyncio.Semaphore(2)
 # 三源搜索结果缓存：翻页只重跑 sukebei（页面相关），不重跑 Chromium 搜索
-_av_info_cache: dict[str, tuple[float, dict]] = {}
+# 用 OrderedDict 做 LRU：key 由用户输入的番号决定、基数无界，不封顶的话长驻容器
+# 内存只增不减（同项目冷却表/去重表都已封顶，这里不能漏）。命中时 move_to_end。
+_av_info_cache: "OrderedDict[str, tuple[float, dict]]" = OrderedDict()
 _AV_INFO_TTL = 1800
+_AV_INFO_MAX = 200
 
 
 def _get_av_info_cached(code: str):
     cached = _av_info_cache.get(code)
     if cached and time.time() - cached[0] < _AV_INFO_TTL:
+        _av_info_cache.move_to_end(code)
         return cached[1]
+    # TTL 过期顺手删掉，别让过期条目占着名额
+    if cached:
+        _av_info_cache.pop(code, None)
     return None
+
+
+def _put_av_info_cached(code: str, av_info: dict):
+    _av_info_cache[code] = (time.time(), av_info)
+    _av_info_cache.move_to_end(code)
+    while len(_av_info_cache) > _AV_INFO_MAX:
+        _av_info_cache.popitem(last=False)
 
 
 async def _search_av_info(text: str, cooldown_key: str):
@@ -48,7 +63,7 @@ async def _search_av_info(text: str, cooldown_key: str):
         _clear_cooldown(cooldown_key)
         await mv_cmd.finish(f"❌ 未找到 {text.upper()} 的信息")
 
-    _av_info_cache[code] = (time.time(), av_info)
+    _put_av_info_cached(code, av_info)
     return av_info
 
 

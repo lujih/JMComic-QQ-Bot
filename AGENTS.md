@@ -55,7 +55,7 @@ pip install -e path/to/JMComic-Crawler-Python
 - `load_plugins("src/plugins")` 以 CWD 为基准生成模块名 `src.plugins.jm`，而包内 `from plugins.jm.xxx import ...` 绝对导入触发第二个命名空间 `plugins.jm` → `handler.py` 执行两次 → 同一 matcher 上注册两个 handler
 - 下载成功路径不 finish，handler#2 完整重跑 → 重复上传（NapCat 回吐只是另一条路径）
 - 修复：`bot.py` 显式 `nonebot.load_plugin(f"plugins.{name}")` 循环加载，与包内绝对导入命名空间一致
-- 单文件插件（jm_info/jm_comment/jm_scheduler）内的 `from plugins.jm.common import ...` 依赖加载顺序，勿改
+- 单文件插件（jm_info/jm_comment/jm_scheduler/jm_sauce）内的 `from plugins.jm.common import ...` 依赖加载顺序，勿改
 
 ### Dockerfile / start.sh
 - 基镜像 `mlikiowa/napcat-docker` 有 `ENTRYPOINT ["bash", "entrypoint.sh"]`，必须用 `ENTRYPOINT []` 清掉；镜像固定 `:v4.18.7`，勿改回 `:latest`（上游漂移会破坏构建）
@@ -82,7 +82,7 @@ pip install -e path/to/JMComic-Crawler-Python
 - 并发控制：全局 `asyncio.Semaphore(2)` 控制并发下载数
 - `wait_for` 超时后底层线程无法取消（Python 线程语义），可能游离。已移除超时重试循环避免并发写
 - 进度展示：下载前一次性展示本子详情（`album.py` 直接发送），不再通过下载器回调逐章推送
-- `ProgressJmDownloader` 子类化 `JmDownloader`，仅覆盖 `before_photo` 用于检查取消信号（`cancel_event.is_set()` 时跳过该章节），无进度推送逻辑
+- `ProgressJmDownloader` 子类化 `JmAsyncDownloader`（**不是** `JmDownloader`），仅覆盖 `before_photo` 用于检查取消信号，无进度推送逻辑。注意基类把 `before_photo`/`after_photo`/`after_album` 派发到解码线程池执行，自定义钩子必须写成 `async def`
 
 ### jmcomic Feature 机制
 - 格式（PDF/ZIP/长图）通过 `Feature.export_*` 作为 `extra` 参数传入，不写在 `option.yml` plugin 段
@@ -99,9 +99,14 @@ pip install -e path/to/JMComic-Crawler-Python
 - **必须 `begin_manifest()` / `finish_manifest()`**：导出插件（img2pdf/zip/long_img）在产出后会调 `downloader.record_export_filepath()` 登记产物；没有活动 manifest 时抛「当前实体没有活动的下载清单」，而该异常被 `_invoke_features_for` 的 try/except **吞进日志** → 表现为「下载成功但 PDF/ZIP 根本没生成」，极难排查
   - 本项目不走 `api.download_album_async`（会丢掉预取好的 entity、丢掉 `cancel_event` 注入、丢掉外层 `async with`），而是直接在 `common.py::_download_entity` 的 `_dl()` 里手工包：`with jm_task_context(download_type=..., jm_id=...): begin_manifest → add_features(extra) → await download_method_fn(...) → finally finish_manifest`
 - **自定义 Feature 的钩子签名同步收窄**：`should_invoke(self, when)` / `invoke(self, option, when, **kwargs)`（`compress.py::CompressZipFeature` 已适配，只判 `when == 'after_album'`）
+- **`download_type` 必须由 `entity.is_album()` 推导，绝不能写死**：配错时 `PluginFeature.should_invoke` 只是返回 `False`，`_invoke_features_for` 直接跳过——**不抛异常、不打日志**，比缺 manifest 更隐蔽。唯一兜底是 `_download_entity` 末尾的产物存在性检查，症状只是「❌ PDF 生成失败，文件未找到」
+- **`begin_manifest` / `finish_manifest` 必须传同一个 entity 对象**：`finish_manifest` 是 `self.manifest_dict[detail]` 裸索引，换对象就 KeyError。也**不要**改用 `dler.download_album(id)`——它内部已自己 begin/finish，会与外层重复
+- **自定义下载器钩子必须是 `async def`**：`JmAsyncDownloader` 把 `before_photo`/`after_photo`/`after_album` 派发到解码线程池（`_run_in_decode_pool`），写成同步 def 会拿不到协程语义
 - **上游对本项目的正向收益**：API `page_count` 改映射 `total_photos`（旧版硬写 `'0'`，`/jmv` 与 `/jm` 详情里"总页数"曾恒为 0）、`pub_date` 改映射 `addtime`；缓存命中的图片现在也记入 `download_success_dict`（旧版 `image.cache and image.exists` 直接 return，导出会漏图）；`RequestRetryAllFailException` 保留各域名原始异常便于排查；移动端 `APP_VERSION` 2.0.30 → 2.1.7
 - **不要用的新特性**：`is_favorite`/`liked` 是**登录态字段**，匿名 API 客户端恒为 False，别加进 `/jmv`；签到打卡、收藏夹导出、Calibre 元数据、`download_progress`(rich) 插件本项目用不上；`plugins.dependencies_strategy` 默认 `failed-fast` 只扫 option 里**声明**的插件，`option.yml` 无 `plugins` 段 + `Feature.export_*` 运行时动态注册 → 启动期不会触发检查，安全
-- **新失败模式监控点**：`post_adapt_album` 现在直接读 `data['total_photos']` / `data['addtime']`（旧代码无条件写 `'0'`），这两个字段缺失会让 `get_album_detail` KeyError，波及 `/jm`、`/jmv`、`/jm rank`、`/jm random` 全热路径，灰度时优先盯这条
+- **新失败模式监控点**：`post_adapt_album` 现在直接读 `data['total_photos']` / `data['addtime']`（旧代码无条件写 `'0'`），这两个字段缺失会让 `get_album_detail` 抛 KeyError。
+  - **受影响**：`/jm`、`/jmv`（详情下载），以及 `/jms`、`/ss` 的 JM 标题匹配（`search_site` 命中 `redirect_aid` 时会转调 `get_album_detail`）
+  - **不受影响**：`/jm rank`、`/jm random`——它们走 `categories_filter`，拿到的是 `JmSearchPage`，从不构造 `JmAlbumDetail`，不会走 `post_adapt_album`。排障时别在这两条上浪费时间
 
 ### jm_scheduler 未复用 option 缓存
 - 最初 `jm_scheduler.py` 直接调用 `create_option_by_file(str(OPTION_PATH))`，与 `jm_option.py` 缓存单例不一致
@@ -210,7 +215,7 @@ pip install -e path/to/JMComic-Crawler-Python
 
 - 命令注册与路由分离：`cmd.py` 定义 `on_command`（`priority=10`, `rule=is_type(GroupMessageEvent)`），`handler.py` 处理逻辑，`__init__.py` 里 `from . import handler` 完成装载；`bot.py` 用 `nonebot.load_plugin(f"plugins.{name}")` 循环加载（勿用 `load_plugins("src/plugins")`，见双命名空间坑）
 - 所有群命令只响应 `GroupMessageEvent`（`is_type` 规则）
-- `jm_info.py` / `jm_comment.py` / `jm_scheduler.py` 是单文件插件，直接在文件内 `on_command` / `scheduler.scheduled_job`，无 cmd.py
+- `jm_info.py` / `jm_comment.py` / `jm_scheduler.py` / `jm_sauce.py` 是单文件插件，直接在文件内 `on_command` / `scheduler.scheduled_job`，无 cmd.py
 - 无测试套件、无 linter/CI 配置；验证手段为 `python -m py_compile` + 本地 `python bot.py` 启动
 
 

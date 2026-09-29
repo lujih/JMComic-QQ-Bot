@@ -270,12 +270,8 @@ async def _download_entity(
         await jm_cmd.finish("⏳ 该本子正在下载中，请稍候再试")
 
     try:
-        cancel_event = threading.Event()
-
         async def _dl():
-            if cancel_event.is_set():
-                return
-            dler = ProgressJmDownloader(option, cancel_event=cancel_event)
+            dler = ProgressJmDownloader(option)
             async with dler:
                 # jmcomic ≥2.7.4 起，Feature 的执行时机由 TaskContext 的 download_type 决定，
                 # add_features 不再接受 feature_from 参数，且必须在 jm_task_context 内调用。
@@ -309,14 +305,12 @@ async def _download_entity(
                     shutil.rmtree(dl_dir, ignore_errors=True)
                 await asyncio.wait_for(_dl(), timeout=dl_timeout)
         except asyncio.TimeoutError:
-            cancel_event.set()
             out_path.unlink(missing_ok=True)
             shutil.rmtree(dl_dir, ignore_errors=True)
             jm_log(f'{log_tag}.download', f'下载超时 ({entity_id})')
             _clear_cooldown(cooldown_key)
             await jm_cmd.finish("❌ 下载超时，请稍后再试")
         except PartialDownloadFailedException as e:
-            cancel_event.set()
             jm_log(f'{log_tag}.download', f'部分图片下载失败 ({entity_id}): {e}')
             if out_path.exists() and out_path.stat().st_size > 0:
                 from plugins.jm.upload import _upload_and_cleanup
@@ -328,7 +322,6 @@ async def _download_entity(
             _clear_cooldown(cooldown_key)
             await jm_cmd.finish("❌ 下载失败（部分图片缺失），请稍后再试")
         except Exception as e:
-            cancel_event.set()
             out_path.unlink(missing_ok=True)
             shutil.rmtree(dl_dir, ignore_errors=True)
             jm_log(f'{log_tag}.download', f'下载 {entity_id} 失败', e)

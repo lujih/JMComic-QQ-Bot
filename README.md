@@ -25,7 +25,7 @@ pinned: false
 | `/jm random` | 随机推荐本子 |
 | `/jmv <ID>` | 查看本子详情 |
 | `/jms <关键词>` | 搜索本子 |
-| `/jmc <ID> [页码]` | 查看本子评论（每页 10 条） |
+| `/jmc <ID> [页码]` | 查看本子评论（每页最多 8 条） |
 | `/mv <番号>` | 搜索番号返回磁力链接（MissAV+JavDB+jav321 三源合并 + Sukebei 磁力链） |
 | 每日 9:00 自动推送 | 随机推荐到已配置群 |
 
@@ -74,24 +74,32 @@ git push
 
 | 变量 | 说明 | 默认值 |
 |---|---|---|
+| `DRIVER` | nonebot2 驱动，**必填**，填 `~fastapi` | 留空（会导致启动崩溃） |
 | `ONEBOT_ACCESS_TOKEN` | NapCat ↔ NoneBot WS 认证 Token | 留空（不启用认证） |
 | `TARGET_GROUPS` | 每日推荐推送的目标群号 | 留空（不推送） |
-| `WEBUI_TOKEN` | NapCat WebUI 管理密码 | `jmcomic` |
+| `WEBUI_TOKEN` | NapCat WebUI 管理密码 | **启动时随机生成 24 位**，见启动日志 |
 | `ACCOUNT` | 指定 QQ 账号自动登录（可选） | 留空（手动扫码） |
 | `SPACE_URL` | 防休眠自 ping 的 Space URL（可选，默认由 HF `SPACE_HOST` 推导） | 自动推导 |
 
-> 环境变量请通过 **HF Settings → Variables** 配置（Docker 构建上下文会排除 `.env`，README 中随代码推送的方式不可用）。`WEBUI_TOKEN` 默认 `jmcomic` 为公开默认值——若 Space 未设为 private，建议在 Variables 中设置随机 token。
+> 环境变量请通过 **HF Settings → Variables** 配置（Docker 构建上下文会排除 `.env`，README 中随代码推送的方式不可用）。
+>
+> ⚠️ **`DRIVER` 必填**：`.env` 被 `.dockerignore` 排除、不会进镜像，容器里缺它时 nonebot2 会在启动第一步读 stdin 询问驱动并崩掉，表现为「Space 反复重启、日志里没有业务错误」。
+>
+> ⚠️ **`WEBUI_TOKEN` 默认随机生成**，并在启动日志里打印一次（HF Space 日志仅所有者可见）。首次扫码登录需要去 Container Logs 搜 `[start] NapCat WebUI token:` 复制。想用固定口令就显式设置该变量，同时把 Space 设为 private。
 
 ### 4. QQ 扫码登录（仅首次）
 
 构建完成后，打开 Space URL → 自动进入 **NapCat WebUI 管理界面**：
 
-1. 左侧导航 → **QQ登录** → **QRCode**
-2. **用你的 QQ 小号** 扫码
-3. 登录后在左侧 **网络配置** 确认 `bot`（WS 客户端）状态为 ✅ **已连接**
-4. 已连接即表示机器人就绪
+1. 在 **Container Logs** 里搜 `[start] NapCat WebUI token:` 复制管理密码
+2. 左侧导航 → **QQ登录** → **QRCode**
+3. **用你的 QQ 小号** 扫码
+4. 登录后在左侧 **网络配置** 确认 `bot`（WS 客户端）状态为 ✅ **已连接**
+5. 已连接即表示机器人就绪
 
-> HF Spaces 磁盘为临时存储，Space 重启后需重新扫码。
+> **关于重启后是否需要重扫**：HF Spaces 磁盘是临时存储，但本项目已实现 QQ 会话快照持久化——在 Space Settings 挂载一个**私有** Storage Bucket 到 `/data`（read-write）并配置 `ACCOUNT` 后，容器重启会自动从快照恢复会话并快登，无需重新扫码。
+> **未挂载 bucket** 时该机制静默跳过，行为退回「每次重启都要重新扫码」。
+> 快照里包含 QQ 登录凭证，**bucket 必须是私有的**。即使挂了 bucket，腾讯风控强制验证时仍可能需要人工扫码，这属预期边界。
 
 ### 5. 验证
 
@@ -208,7 +216,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 
 - **NapCatQQ**: NTQQ 官方协议实现，负责 QQ 消息收发，提供 WebUI 管理界面
 - **NoneBot2**: 异步消息路由框架，处理命令分发
-- **jmcomic**: 禁漫天堂下载引擎，同步库，通过 `run_in_executor` 适配异步
+- **jmcomic**: 禁漫天堂下载引擎。**元数据查询走原生 async client**（`async_impl: async_api`）直接 `await`；**下载走原生 `JmAsyncDownloader` 异步下载器**；`run_in_executor`（`src/_common.py`）现在只剩 `/mv` 的 Scrapling 同步搜索在用
 
 端口映射：
 - `7860` — HF Spaces 默认端口 → NapCat WebUI
@@ -220,10 +228,11 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 |---|---|---|
 | Space 构建失败 | Docker build 超时 / OOM | 重试构建，检查 Builder Logs |
 | 打开 Space 看不到 WebUI | 容器未就绪 / Python 未启动 | 等 2 分钟刷新，检查 Container Logs |
-| WebUI 的 WS 客户端「未连接」 | ONEBOT_ACCESS_TOKEN 不匹配 | 确认 `.env` 与 `config/onebot11.json` token 一致 |
+| WebUI 的 WS 客户端「未连接」 | ONEBOT_ACCESS_TOKEN 不匹配 | 确认 HF Variables 里的 `ONEBOT_ACCESS_TOKEN` 已设置，且与 NapCat WebUI 网络配置里的 access token 一致（容器内没有 `.env`，改本地文件无效） |
 | QQ 扫码后闪退 | 账号风控 / NTQQ 兼容性 | 换一个小号，或更新 napcat-docker 镜像版本 |
 | `/jm` 命令返回超时 | 禁漫API 请求超时 | HF 海外节点正常，无需代理；若持续可重试 |
 | `/jm` 返回「文件未找到」 | 生成阶段错误 | 检查 Container Logs 中 jmcomic 报错 |
+| Space 反复重启，日志无业务错误 | `DRIVER` 未配置 | HF Variables 里加 `DRIVER=~fastapi`，见上文步骤 3 |
 | `/jm` 群内重复下载两次 | NapCat 上传完成回放假消息（同 message_id） | 已修复（message_id 去重 + 冷却兜底），pull 最新代码 |
 | 每日 9:00 未推送 | `TARGET_GROUPS` 未配置 | 添加群号到环境变量 |
 
@@ -235,14 +244,12 @@ JMComic-QQ-Bot/
 ├── config/
 │   └── onebot11.json      # NapCat WS 客户端配置
 ├── option.yml             # jmcomic 下载配置
-├── .env.example           # 环境变量模板
 ├── requirements.txt       # Python 依赖
 ├── Dockerfile             # HF Spaces Docker 构建
 ├── start.sh               # 容器启动入口
-├── .env                   # 环境变量（已 gitignore）
+├── .env                   # 环境变量（已 gitignore，仅本地开发用）
 ├── .env.example           # 环境变量模板
 ├── pyproject.toml         # 项目配置
-├── requirements-dev.txt   # 开发依赖（可选）
 ├── LICENSE
 ├── README.md              # 本文件
 ├── AGENTS.md              # AI 助手上下文（架构/坑/编码规范）
@@ -251,6 +258,8 @@ JMComic-QQ-Bot/
 ├── SECURITY.md            # 安全策略（可选）
 ├── .gitignore
 ├── .dockerignore
+├── scripts/
+│   └── session_keeper.py  # QQ 会话快照 restore/backup/watch（仅标准库）
 ├── src/
 │   ├── _common.py        # run_sync 共享函数
 │   ├── jm_option.py      # jmcomic option 双检锁缓存
@@ -258,7 +267,8 @@ JMComic-QQ-Bot/
 │       ├── __init__.py
 │       ├── jm_info.py    # 查询命令（/jmv /jms）
 │       ├── jm_comment.py # 评论命令（/jmc）
-│       ├── jm_scheduler.py # 定时推荐
+│       ├── jm_sauce.py   # 以图搜源（/ss）
+│       ├── jm_scheduler.py # 定时推荐 + 缓存清理 + 自 ping
 │       ├── jm/           # /jm 命令包
 │       │   ├── __init__.py
 │       │   ├── cmd.py
@@ -267,6 +277,7 @@ JMComic-QQ-Bot/
 │       │   ├── photo.py
 │       │   ├── upload.py
 │       │   ├── progress.py
+│       │   ├── compress.py  # zip 源图压缩 Feature（自定义 Feature 示例）
 │       │   └── common.py
 │       └── mv/           # /mv 命令包
 │           ├── __init__.py
@@ -280,6 +291,8 @@ JMComic-QQ-Bot/
 │   ├── ISSUE_TEMPLATE/
 │   │   ├── bug_report.md
 │   │   └── feature_request.md
+│   ├── workflows/
+│   │   └── keepalive.yml   # 每 24h ping Space URL 防休眠
 │   └── PULL_REQUEST_TEMPLATE.md
 └── .codegraph/            # 代码图谱索引（AI 开发辅助）
 ```

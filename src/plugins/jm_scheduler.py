@@ -95,8 +95,17 @@ async def connection_health():
 @scheduler.scheduled_job("interval", hours=24, id="space_keepalive")
 async def space_keepalive():
     """自 ping Space 公网入口，配合 GitHub Actions 防 HF 免费版 48h 无请求休眠（24h < 48h）"""
-    # SPACE_URL 优先；否则用 HF 注入的 SPACE_HOST 推导，fork 部署无需改代码
-    url = os.getenv("SPACE_URL") or f"https://{os.getenv('SPACE_HOST', 'cszx-jmcomic-qq-bot.hf.space')}/"
+    # SPACE_URL 优先；否则用 HF 注入的 SPACE_HOST 推导。
+    # 两者都没有就跳过——**不要写死某个默认域名**：fork 者会静默去 ping 别人的 Space
+    # （自己照样 48h 休眠），日志只会打一条 keepalive 200，看不出保活打错了地方。
+    # 与 .github/workflows/keepalive.yml 的处理方式保持一致。
+    base = os.getenv("SPACE_URL") or (
+        f"https://{os.getenv('SPACE_HOST')}/" if os.getenv("SPACE_HOST") else None
+    )
+    if not base:
+        jm_log("jm.scheduler.keepalive", "未配置 SPACE_URL / SPACE_HOST，跳过自 ping 保活")
+        return
+    url = base if base.endswith("/") else base + "/"
     try:
         loop = asyncio.get_running_loop()
         resp = await loop.run_in_executor(

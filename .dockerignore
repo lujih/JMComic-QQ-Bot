@@ -1,4 +1,7 @@
-__pycache__
+# 必须用 **/ 前缀：Docker 的 .dockerignore 里 * 不跨越 /，
+# 否则只匹配根目录，src/plugins/**/__pycache__ 下的字节码会被 COPY 进镜像
+**/__pycache__
+**/*.pyc
 *.pyc
 .git
 .gitignore
@@ -15,3 +18,5 @@ dist/
 build/
 *.egg-info/
 *.whl
+# 上游 jmcomic 正则解析失败时会把响应体落到 CWD/jmcomic_debug/
+jmcomic_debug/

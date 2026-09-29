@@ -11,3 +11,6 @@ __pycache__/
 
 # runtime data
 data/
+
+# 上游 jmcomic 正则解析失败时会把响应体落到 CWD/jmcomic_debug/
+jmcomic_debug/
