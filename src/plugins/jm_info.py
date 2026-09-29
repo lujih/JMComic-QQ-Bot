@@ -87,9 +87,9 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'本子不存在: {album_id}')
         await jmv_cmd.finish("❌ 本子不存在，请检查 ID")
-    except RequestRetryAllFailException:
+    except RequestRetryAllFailException as e:
         _clear_cooldown(cooldown_key)
-        jm_log('jm.info', f'查询详情失败: API 不可达 ({album_id})')
+        jm_log('jm.info', f'查询详情失败: API 不可达 ({album_id})', e)
         await jmv_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)
@@ -123,7 +123,10 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     if album.comment_count:
         lines.append(f"💬 评论: {album.comment_count}")
 
-    if album.pub_date and album.pub_date != '0':
+    # jmcomic ≥2.7.7 起 pub_date 来自 datetime.fromtimestamp(addtime)，
+    # 不再是「缺失时写 '0'」的哨兵；addtime 为 0 时会得到 1970-01-01，同样视为无数据。
+    # update_date 仍走 '0' 哨兵（上游保留），所以下面两行的判据不同。
+    if album.pub_date and album.pub_date not in ('0', '1970-01-01'):
         lines.append(f"📅 发布日期: {album.pub_date}")
     if album.update_date and album.update_date != '0':
         lines.append(f"📅 更新日期: {album.update_date}")
@@ -183,9 +186,9 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'搜索超时: {text}')
         await jms_cmd.finish("❌ 搜索超时，请稍后再试")
-    except RequestRetryAllFailException:
+    except RequestRetryAllFailException as e:
         _clear_cooldown(cooldown_key)
-        jm_log('jm.info', f'搜索失败: API 不可达 ({text})')
+        jm_log('jm.info', f'搜索失败: API 不可达 ({text})', e)
         await jms_cmd.finish("❌ 搜索失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)

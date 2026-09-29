@@ -10,8 +10,12 @@ NAPCAT_DIR=/app/napcat
 NAPCAT_CONFIG=$NAPCAT_DIR/config
 mkdir -p "$NAPCAT_CONFIG"
 
-# 0a. 固定默认 WebUI token（可被 WEBUI_TOKEN 环境变量覆盖）；不随机生成，方便 WebUI 访问
-WEBUI_TOKEN="${WEBUI_TOKEN:-jmcomic}"
+# 0a. WebUI token：优先用环境变量，未设置则随机生成。
+# 随机而非固定默认值的原因：NapCat WebUI 绑 0.0.0.0:7860，HF Spaces 默认把 public 端口直出，
+# 而 token 是管理 API 的唯一鉴权闸门（session_keeper 用它换 Credential 调查状态/快登），
+# 写死的公开常量等于把 QQ 账号管理权对全网公开。随机 token 从 Space 日志取（仅所有者可见）。
+# 显式覆盖 WEBUI_TOKEN 的部署（固定口令 + Space 设为 private）行为不变。
+WEBUI_TOKEN="${WEBUI_TOKEN:-$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)}"
 
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
 echo "[start] Writing NapCat WebUI config (port 7860)..."
@@ -19,10 +23,12 @@ cat > "$NAPCAT_CONFIG/webui.json" << EOF
 {
     "host": "0.0.0.0",
     "port": 7860,
-    "token": "${WEBUI_TOKEN:-jmcomic}",
+    "token": "${WEBUI_TOKEN}",
     "loginRate": 3
 }
 EOF
+# 随机 token 只打印一次；HF Space 日志仅所有者可见，首次扫码登录时需要它
+echo "[start] NapCat WebUI token: ${WEBUI_TOKEN}"
 # Token 已写入配置文件，从环境变量中移除，减少子进程暴露面
 # ONEBOT 侧：NoneBot 适配器读 ONEBOT_ACCESS_TOKEN，NapCat 配置注入同一值；先备份再 unset
 unset WEBUI_TOKEN

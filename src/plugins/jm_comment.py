@@ -82,9 +82,9 @@ async def handle_jmc(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         _clear_cooldown(cooldown_key)
         jm_log('jm.comment', f'获取评论超时: {album_id} p{page}')
         await jmc_cmd.finish("❌ 查询超时，请稍后再试")
-    except RequestRetryAllFailException:
+    except RequestRetryAllFailException as e:
         _clear_cooldown(cooldown_key)
-        jm_log('jm.comment', f'获取评论失败: API 不可达 ({album_id})')
+        jm_log('jm.comment', f'获取评论失败: API 不可达 ({album_id})', e)
         await jmc_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)

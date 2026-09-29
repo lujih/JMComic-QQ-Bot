@@ -180,31 +180,25 @@ def _is_dup_message(message_id: int) -> bool:
         return False
 
 
-def _try_lock_album_by_aid(aid: str) -> bool:
+def _try_lock_dl_root(album_id: str) -> bool:
+    """以「所属专辑 id」为键互斥。
+
+    锁的是 album 整个下载目录树，而不是本次请求的 entity_id。dir_rule=Bd_Aid_Pid 时，
+    album 下载的根是 {base}/{album_id}，photo 下载的 {base}/{album_id}/{photo_id}
+    就长在这个根下面——两者物理重叠。按 entity_id 分锁会让两条路径互不排斥，
+    于是在下载前的 rmtree 里删掉对方正在写的图片目录；最坏情况是磁盘删除发生在
+    after_image 记账之后，PDF 静默缺图却仍被当作完整产物上传。
+    """
     with _processing_lock:
-        if aid in _processing_albums:
+        if album_id in _processing_albums:
             return False
-        _processing_albums.add(aid)
+        _processing_albums.add(album_id)
         return True
 
 
-def _try_lock_photo_by_pid(pid: str) -> bool:
-    key = f'p:{pid}'
+def _unlock_dl_root(album_id: str):
     with _processing_lock:
-        if key in _processing_albums:
-            return False
-        _processing_albums.add(key)
-        return True
-
-
-def _unlock_photo_by_pid(pid: str):
-    with _processing_lock:
-        _processing_albums.discard(f'p:{pid}')
-
-
-def _unlock_album_by_aid(aid: str):
-    with _processing_lock:
-        _processing_albums.discard(aid)
+        _processing_albums.discard(album_id)
 
 
 async def _download_entity(
@@ -242,9 +236,11 @@ async def _download_entity(
         _clear_cooldown(cooldown_key)
         jm_log(f'{log_tag}.detail', f'实体不存在: {entity_id}')
         await jm_cmd.finish("❌ 实体不存在，请检查 ID")
-    except RequestRetryAllFailException:
+    except RequestRetryAllFailException as e:
         _clear_cooldown(cooldown_key)
-        jm_log(f'{log_tag}.detail', f'查询详情失败: API 不可达 ({entity_id})')
+        # 传 e：jmcomic ≥2.7.5 的 __str__ 会带上各域名/各次重试的原始异常，
+        # 是排查「API 不可达」到底是 DNS、超时还是被风控的唯一线索，不传就白升级了
+        jm_log(f'{log_tag}.detail', f'查询详情失败: API 不可达 ({entity_id})', e)
         await jm_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)
@@ -253,77 +249,99 @@ async def _download_entity(
 
     await jm_cmd.send(make_info_msg(entity))
 
-    cancel_event = threading.Event()
-
-    async def _dl():
-        if cancel_event.is_set():
-            return
-        dler = ProgressJmDownloader(option, cancel_event=cancel_event)
-        async with dler:
-            # jmcomic ≥2.7.4 起，Feature 的执行时机由 TaskContext 的 download_type 决定，
-            # add_features 不再接受 feature_from 参数，且必须在 jm_task_context 内调用。
-            # begin_manifest/finish_manifest 不可省：导出插件（img2pdf/zip/long_img）会通过
-            # downloader.record_export_filepath 把产物登记进清单，缺清单时插件直接抛
-            # 「当前实体没有活动的下载清单」——而该异常会被 _invoke_features_for 吞进日志，
-            # 表现为「下载成功但 PDF/ZIP 没生成」，是极难排查的静默失败。
-            dtype = 'album' if entity.is_album() else 'photo'
-            with jm_task_context(download_type=dtype, jm_id=str(entity_id)):
-                dler.begin_manifest(entity)
-                try:
-                    dler.add_features(extra)
-                    await download_method_fn(dler, entity)
-                finally:
-                    dler.finish_manifest(entity)
-            dler.raise_if_has_exception()
-
     if _is_cache_valid(out_path):
         from plugins.jm.upload import _upload_and_cleanup
         await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=None)
         return
 
-    # 清理目标从实体推导（Bd_Aid_Pid 下图片目录为 {base}/{album_id}/{photo_id}，专辑根为二者父目录）
-    if entity.is_album():
-        dl_dir = Path(option.dir_rule.decide_album_root_dir(entity))
-    else:
-        dl_dir = Path(option.decide_image_save_dir(entity)).parent
+    # 处理锁：键是「所属专辑 id」而不是本次请求的 entity_id。
+    # option.yml 的 dir_rule 是 Bd_Aid_Pid，album 下载写在 {base}/{album_id}，
+    # photo 下载写在 {base}/{album_id}/{photo_id}——photo 的图片目录就在 album 的根下面。
+    # 若按 entity_id 分锁（album 用裸 id、photo 用 p:{id}），两条路径互不排斥，
+    # 会在下载前的 rmtree 里删掉对方正在写的图片目录；最坏情况是磁盘删除发生在
+    # after_image 记账之后，PDF 静默缺图却仍被当作完整产物上传。
+    # 改用 album_id 后：album 下载、任意章节下载、同本不同章节并发，全部互斥。
+    # 单章本子的 photo.album_id == photo_id（is_single_album），与 album 侧天然同键。
+    # 缓存命中路径不碰下载目录，无需加锁。
+    dl_root = str(entity.album_id)
+    if not _try_lock_dl_root(dl_root):
+        _clear_cooldown(cooldown_key)
+        jm_log(f'{log_tag}.lock', f'忽略重复请求，专辑 {dl_root} 正在下载中')
+        await jm_cmd.finish("⏳ 该本子正在下载中，请稍候再试")
+
     try:
-        async with _semaphore:
+        cancel_event = threading.Event()
+
+        async def _dl():
+            if cancel_event.is_set():
+                return
+            dler = ProgressJmDownloader(option, cancel_event=cancel_event)
+            async with dler:
+                # jmcomic ≥2.7.4 起，Feature 的执行时机由 TaskContext 的 download_type 决定，
+                # add_features 不再接受 feature_from 参数，且必须在 jm_task_context 内调用。
+                # begin_manifest/finish_manifest 不可省：导出插件（img2pdf/zip/long_img）会通过
+                # downloader.record_export_filepath 把产物登记进清单，缺清单时插件直接抛
+                # 「当前实体没有活动的下载清单」——而该异常会被 _invoke_features_for 吞进日志，
+                # 表现为「下载成功但 PDF/ZIP 没生成」，是极难排查的静默失败。
+                # dtype 必须由 entity.is_album() 推导：写死会让对应 export Feature 的
+                # should_invoke 恒为 False，导出静默不发生且不抛任何异常。
+                dtype = 'album' if entity.is_album() else 'photo'
+                with jm_task_context(download_type=dtype, jm_id=str(entity_id)):
+                    dler.begin_manifest(entity)
+                    try:
+                        dler.add_features(extra)
+                        await download_method_fn(dler, entity)
+                    finally:
+                        dler.finish_manifest(entity)
+                dler.raise_if_has_exception()
+
+        # 清理目标：album 删专辑根（内含所有 Pid 子目录），photo 只删自己的 Pid 子目录。
+        # 不能统一用 decide_image_save_dir(entity).parent——那正是 album 的根，
+        # photo 会把整个专辑根连同其它章节一起删掉。
+        if entity.is_album():
+            dl_dir = Path(option.dir_rule.decide_album_root_dir(entity))
+        else:
+            dl_dir = Path(option.decide_image_save_dir(entity))
+        try:
+            async with _semaphore:
+                out_path.unlink(missing_ok=True)
+                if dl_dir.exists():
+                    shutil.rmtree(dl_dir, ignore_errors=True)
+                await asyncio.wait_for(_dl(), timeout=dl_timeout)
+        except asyncio.TimeoutError:
+            cancel_event.set()
             out_path.unlink(missing_ok=True)
+            shutil.rmtree(dl_dir, ignore_errors=True)
+            jm_log(f'{log_tag}.download', f'下载超时 ({entity_id})')
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish("❌ 下载超时，请稍后再试")
+        except PartialDownloadFailedException as e:
+            cancel_event.set()
+            jm_log(f'{log_tag}.download', f'部分图片下载失败 ({entity_id}): {e}')
+            if out_path.exists() and out_path.stat().st_size > 0:
+                from plugins.jm.upload import _upload_and_cleanup
+                await jm_cmd.send("⚠️ 部分图片下载失败，文件已生成（可能缺图）")
+                await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=dl_dir)
+                return
+            out_path.unlink(missing_ok=True)
+            shutil.rmtree(dl_dir, ignore_errors=True)
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish("❌ 下载失败（部分图片缺失），请稍后再试")
+        except Exception as e:
+            cancel_event.set()
+            out_path.unlink(missing_ok=True)
+            shutil.rmtree(dl_dir, ignore_errors=True)
+            jm_log(f'{log_tag}.download', f'下载 {entity_id} 失败', e)
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish("❌ 下载失败，请稍后再试")
+
+        if not out_path.exists():
             if dl_dir.exists():
                 shutil.rmtree(dl_dir, ignore_errors=True)
-            await asyncio.wait_for(_dl(), timeout=dl_timeout)
-    except asyncio.TimeoutError:
-        cancel_event.set()
-        out_path.unlink(missing_ok=True)
-        shutil.rmtree(dl_dir, ignore_errors=True)
-        jm_log(f'{log_tag}.download', f'下载超时 ({entity_id})')
-        _clear_cooldown(cooldown_key)
-        await jm_cmd.finish("❌ 下载超时，请稍后再试")
-    except PartialDownloadFailedException as e:
-        cancel_event.set()
-        jm_log(f'{log_tag}.download', f'部分图片下载失败 ({entity_id}): {e}')
-        if out_path.exists() and out_path.stat().st_size > 0:
-            from plugins.jm.upload import _upload_and_cleanup
-            await jm_cmd.send("⚠️ 部分图片下载失败，文件已生成（可能缺图）")
-            await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=dl_dir)
-            return
-        out_path.unlink(missing_ok=True)
-        shutil.rmtree(dl_dir, ignore_errors=True)
-        _clear_cooldown(cooldown_key)
-        await jm_cmd.finish("❌ 下载失败（部分图片缺失），请稍后再试")
-    except Exception as e:
-        cancel_event.set()
-        out_path.unlink(missing_ok=True)
-        shutil.rmtree(dl_dir, ignore_errors=True)
-        jm_log(f'{log_tag}.download', f'下载 {entity_id} 失败', e)
-        _clear_cooldown(cooldown_key)
-        await jm_cmd.finish("❌ 下载失败，请稍后再试")
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish(f"❌ {fmt_name} 生成失败，文件未找到")
 
-    if not out_path.exists():
-        if dl_dir.exists():
-            shutil.rmtree(dl_dir, ignore_errors=True)
-        _clear_cooldown(cooldown_key)
-        await jm_cmd.finish(f"❌ {fmt_name} 生成失败，文件未找到")
-
-    from plugins.jm.upload import _upload_and_cleanup
-    await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=dl_dir)
+        from plugins.jm.upload import _upload_and_cleanup
+        await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=dl_dir)
+    finally:
+        _unlock_dl_root(dl_root)

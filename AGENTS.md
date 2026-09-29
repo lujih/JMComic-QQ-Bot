@@ -33,7 +33,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`）+ 每 5 分钟缓存清理 + 每 24 小时 Space 自 ping 防休眠 |
 | `.github/workflows/keepalive.yml` | GitHub Actions 每 24 小时 ping HF Space URL 防休眠（与 bot 内自 ping 双保险） |
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
-| `option.yml` | jmcomic 配置（`impl: api` + `cache: false` + `proxies: null`，无 plugin 段，格式由 Feature 传入） |
+| `option.yml` | jmcomic 配置（`impl: api` + `async_impl: async_api` + `cache: false` + `client.timeout`，无 plugin 段，格式由 Feature 传入）。注意 `proxies: null` **不等于禁用代理**，见文件内注释 |
 | `Dockerfile` | 基于 `mlikiowa/napcat-docker` + Python venv + ffmpeg |
 | `start.sh` | 容器入口：配置写入 → NapCat 解包 → 会话恢复 → Xvfb → QQ 后台（含备份循环 + 登录 watchdog） → NoneBot 前台 |
 | `scripts/session_keeper.py` | QQ 会话持久化三合一：`restore`（启动时从快照恢复）/`backup`（每 10min 打包快照）/`watch`（掉线自动快登），仅标准库 |
@@ -66,7 +66,7 @@ pip install -e path/to/JMComic-Crawler-Python
 - `nonebot2` 须安装 `[fastapi]` extras（纯包缺 fastapi）
 - `/app/.config/QQ/NapCat/temp` 权限：需 `mkdir + chown napcat:napcat`
 - `FFMPEG_PATH` 声明后须 `apt-get install ffmpeg`
-- `start.sh` 用 `set -u` 但**不用** `set -e`（前后台进程并存）；`WEBUI_TOKEN` 默认固定 `jmcomic`（不随机，可被环境变量覆盖，QQ 扫码登录后 NapCat 可能强制改密一次）写入后即 `unset`；`ONEBOT_TOKEN` 先备份到 `ONEBOT_TOKEN_BACKUP` 再 unset，供配置注入使用（NoneBot 适配器读 `ONEBOT_ACCESS_TOKEN`，勿用旧名 `ONEBOT_TOKEN`）；SIGTERM trap 负责优雅关闭；`sync_onebot11_config` 后台循环按账号同步配置
+- `start.sh` 用 `set -u` 但**不用** `set -e`（前后台进程并存）；`WEBUI_TOKEN` 默认**随机生成 24 位**（`tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24`），并在写完配置后打印一次到 Space 日志（仅 Space 所有者可见，扫码登录时要用），随后 `unset`；**不要再改回固定默认值**——WebUI 绑 `0.0.0.0:7860` 且 HF Spaces 默认 public 端口直出，写死口令等于把 QQ 账号管理权公开。显式设置 `WEBUI_TOKEN` 环境变量的部署行为不变（固定口令 + Space 设 private）。NapCat 扫码登录后可能强制改密一次。`ONEBOT_TOKEN` 先备份到 `ONEBOT_TOKEN_BACKUP` 再 unset，供配置注入使用（NoneBot 适配器读 `ONEBOT_ACCESS_TOKEN`，勿用旧名 `ONEBOT_TOKEN`）；SIGTERM trap 负责优雅关闭；`sync_onebot11_config` 后台循环按账号同步配置
 - `ENV TZ=Asia/Shanghai`（否则 cron 按 UTC，每日推荐会在北京 17:00 推送）
 - 容器 HEALTHCHECK 探测 `http://127.0.0.1:7860`（NapCat WebUI），不是 8080（NoneBot 无根路由，探测会恒 404）
 
@@ -131,11 +131,19 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### Album 处理锁
 - 三层保护：处理锁 + message_id 去重 + cooldown
-- 处理锁 key = `album_id`（不含 user_id）：不同用户并发下载同一本子不互斥
+- 处理锁 key = **`entity.album_id`**（所属专辑 id，不含 user_id），**不是**本次请求的 entity_id
+- 锁必须挂在 album 上，因为 `dir_rule=Bd_Aid_Pid` 时 album 写在 `{base}/{album_id}`、
+  photo 写在 `{base}/{album_id}/{photo_id}`——photo 的目录就长在 album 的根下面，物理重叠
+- **历史教训**：曾按 entity_id 分锁（album 裸 id、photo `p:{pid}`）而两者互不排斥，
+  两条路径的 `rmtree` 会互删对方正在写的图片目录；最坏情况是磁盘删除发生在 `after_image`
+  记账之后，`download_failed_image` 为空、`raise_if_has_exception()` 正常通过，
+  **静默产出一份缺图 PDF 并当作完整产物上传**。2026-09-29 修复为按 album_id 加锁
+- 锁在 `_download_entity` 内、拿到 entity 之后获取（此时才知道 album_id）；
+  缓存命中路径不碰下载目录，不加锁
+- `_try_lock_dl_root` / `_unlock_dl_root` 立即释放，`try/finally` 保证；
+  `_download_entity` 里 `finish()` 抛 `FinishedException` 也会走到 finally
 - 冷却 key = `f"{user_id}:{album_id}"`：仅限制同一用户对同一本子的频率
-- `_try_lock_album_by_aid` 检查 `_processing_albums` 集合，立即返回 False 忽略重复
-- `_unlock_album_by_aid` **立即**释放（无延迟），`try/finally` 保证
-- photo 下载使用独立前缀 `p:{photo_id}`，与 album 锁互不干扰
+- 单章本子的 `photo.album_id == photo_id`（`is_single_album`），与 album 侧天然同键
 
 ### 动态下载目录
 - 新增 `_get_dl_tmp()` 从 option 读取 `dir_rule.base_dir`，替代硬编码 `/tmp/jm_dl/`
@@ -186,7 +194,8 @@ pip install -e path/to/JMComic-Crawler-Python
 - `/ss` 四源并行：Ascii2d（multipart `/search/file`→302 color 页→bovw 优先）、SoutuBot（`X-Api-Key = reverse(base64(ts²+uaLen²+m))` 轻量签名，m 从主页 JS 抓取，401/403 自动刷新重试一次）、trace.moe（`anilistInfo` 一次拿标题/EP/时间点，全局滑窗 100 次/时保护）、Yandex（URL 模式 `rpt=imageview&url=`，captcha 即静默降级）；单源失败互不影响（`_safe` 吞异常记日志）；JM 匹配取 Ascii2d/SoutuBot 首条标题 `search_site` 后给疑似 ID + `/jm <id>` 提示；全局 `Semaphore(2)`；UA 常量长度恒定（SoutuBot 签名依赖 uaLen）；nonebot `Message` 是 list 子类，图片提取按元素类型 duck-typing 区分 segment/dict
 - `/ss` 取图三级兜底：附图 url → 回复消息（`get_msg`→url 缺失时取 image `data.file` 调 OneBot `get_image` 换 url，仍不行读其返回的 NapCat 本地缓存路径——与 NoneBot 同容器直接读字节）→ 群最近图记忆（`_img_recorder` 被动 listener 实时缓存每群最近 5 张/TTL 120s，裸发 `/ss` 自动用）；回复取图失败**不降级**到最近图（用户意图指向特定图片）；历史消息图片常无 http url 是 NapCat 已知行为，勿删 get_image 兜底
 - 缓存文件带命名空间前缀：album=`a{id}.{ext}`、photo=`p{id}.pdf`（`_make_out_path` 由 `cache_prefix` 参数控制，导出侧 `filename_rule` 同步用 `a{Aid}`/`p{Pid}`），避免 photo_id 与 album_id 数字碰撞互串；上传显示名仍为 `JM{id}.{ext}`
-- 下载清理目标从实体推导：album 用 `option.dir_rule.decide_album_root_dir(entity)`，photo 用 `option.decide_image_save_dir(entity).parent`（Bd_Aid_Pid 下二者均为 `{base}/{album_id}`），勿再按 entity_id 拼目录
+- 下载清理目标从实体推导，且**album 与 photo 不同**：album 用 `option.dir_rule.decide_album_root_dir(entity)`（整个专辑根，内含所有 Pid 子目录），photo 用 `option.decide_image_save_dir(entity)`（**只删自己那一个 Pid 子目录，不加 `.parent`**——加了就是专辑根，会连同其它章节一起删掉）。勿再按 entity_id 拼目录
+- `upload.py::_upload_and_cleanup` 的 `dl_dir=None` 表示「没有下载目录要清理」（缓存命中路径），此时**不做任何删除**——绝不能按 `entity_id` 反推目录
 - 部分下载失败（`PartialDownloadFailedException`）：产物已生成则提示缺图并照常上传，不再删除/清冷却
 - `_is_cache_valid` 校验 `st_size > 0`（防 0 字节坏 PDF 被缓存命中）；下载失败/超时分支先清 `out_path` + `dl_dir` 再 finish；下载前也清残留 dl_dir（防孤儿线程旧文件被 `download.cache` 误判跳过）
 - message_id 去重 TTL 600s（覆盖 300s 下载 + 120s 上传最长窗口）；处理锁冲突时 `finish("正在下载中")` 并清冷却，不再静默丢弃

@@ -401,13 +401,22 @@ async def handle_ss(bot: Bot, event: GroupMessageEvent):
 
     async with _ss_semaphore:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            if kind == "path":
-                with open(value, "rb") as f:
-                    img_bytes = f.read()
-                probe_url = ""
-            else:
-                img_bytes = await _fetch_image(client, value)
-                probe_url = value
+            # 取图这一步不在 _safe 保护范围内（_safe 失败返回 []，这里需要的是提示语），
+            # 而 NapCat 下发的群图 url 常是带时效签名的 CDN 链接，403/404 是高频事件。
+            # 漏掉保护的话，用户会看到「正在反查…」之后彻底没有下文，日志里只有一条
+            # NoneBot 的 handler traceback。
+            try:
+                if kind == "path":
+                    with open(value, "rb") as f:
+                        img_bytes = f.read()
+                    probe_url = ""
+                else:
+                    img_bytes = await _fetch_image(client, value)
+                    probe_url = value
+            except Exception as e:
+                _clear_cooldown(cooldown_key)
+                jm_log('jm.sauce.fetch', '获取图片失败（链接可能已过期）', e)
+                await ss_cmd.finish("❌ 图片获取失败（链接可能已过期），请重新发送图片后重试")
             a2d, soutu, tm, yx = await asyncio.gather(
                 _safe("ascii2d", _search_ascii2d(client, img_bytes)),
                 _safe("soutubot", _search_soutubot(client, img_bytes)),

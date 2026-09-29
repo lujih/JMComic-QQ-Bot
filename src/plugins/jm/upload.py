@@ -11,7 +11,7 @@ from jmcomic import jm_log
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent
 
 from plugins.jm.cmd import jm_cmd
-from plugins.jm.common import _clear_cooldown, _get_dl_tmp
+from plugins.jm.common import _clear_cooldown
 
 
 def _calc_sha256(file_path: Path) -> str:
@@ -104,9 +104,11 @@ async def _upload_and_cleanup(bot: Bot, event: GroupMessageEvent, file_path: Pat
             await jm_cmd.finish(f"❌ {fmt_name} 上传失败（已尝试 2 种方式）")
     finally:
         loop = asyncio.get_running_loop()
-        d = dl_dir or (_get_dl_tmp() / id_str)
-        if d.exists():
-            await loop.run_in_executor(None, lambda: shutil.rmtree(d, ignore_errors=True))
+        # dl_dir 传 None 表示「本次没有下载目录需要清理」（缓存命中路径），
+        # 此时绝不能按 entity_id 反推目录——那正是 AGENTS.md 明令废弃的「按 entity_id 拼目录」，
+        # 会算出 {base}/{entity_id} 这种不存在的路径，或在单章本子上误删整个专辑根。
+        if dl_dir is not None and dl_dir.exists():
+            await loop.run_in_executor(None, lambda: shutil.rmtree(dl_dir, ignore_errors=True))
 
         if not success:
             await loop.run_in_executor(None, lambda: file_path.unlink(missing_ok=True))

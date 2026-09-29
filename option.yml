@@ -7,10 +7,19 @@ client:
   async_impl: async_api
   cache: false
   retry_times: 3
-  proxies: null
+  # timeout 的读取点是 client 顶层（jm_async_client.py: option.client.get('timeout', 30)），
+  # 写在 postman.meta_data 下不生效。
+  timeout: 30
   postman:
     meta_data:
-      timeout: 30
+      # proxies 的读取点是 postman.meta_data.proxies（顶层 client.proxies 从不被读取）。
+      # 注意：写 null 并不能「禁用代理」——上游默认填充是
+      # `if meta_data['proxies'] is None: meta_data['proxies'] = DEFAULT_PROXIES`，
+      # 而 DEFAULT_PROXIES = ProxyBuilder.system_proxy()，即 null 会被回填成系统代理。
+      # 本容器不注入 HTTP_PROXY 等变量，system_proxy() 返回 None，所以实际仍然不走代理；
+      # 但若平台侧注入了代理环境变量，这里会静默生效。真要强制不走代理只能改代码
+      # (JmModuleConfig.DEFAULT_PROXIES = None)。
+      proxies: null
 
 download:
   cache: true
