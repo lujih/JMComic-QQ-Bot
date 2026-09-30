@@ -12,8 +12,7 @@ mkdir -p "$NAPCAT_CONFIG"
 
 # 0a. WebUI token：环境变量 > /data 里已存的 > 新随机生成。
 # 为什么要随机：WebUI 绑 0.0.0.0:7860，HF Spaces 默认把 public 端口直出，而 token 是
-# 管理 API 的唯一鉴权闸门（session_keeper 用它换 Credential 调查状态/快登），写死的
-# 公开常量等于把 QQ 账号管理权对全网公开。
+# 管理 API 的唯一鉴权闸门，写死的公开常量等于把 QQ 账号管理权对全网公开。
 # 为什么存到 /data：每次重启都换新 token 会让「要进 WebUI 就得先去翻日志」，旧 token
 # 立刻作废，实测中这是个很烦的运维退化。存在桶里既跨重启稳定，又不等于任何公开常量。
 WEBUI_TOKEN_FILE=/data/webui_token
@@ -79,12 +78,6 @@ mkdir -p /app/.config/QQ/NapCat/temp
 mkdir -p /app/.cache
 chown -R napcat:napcat /app/.config/QQ /app/.cache 2>/dev/null || { echo "[start] WARNING: chown for /app/.config/QQ or /app/.cache failed" >&2; }
 
-# 3b. Restore QQ session from Storage Bucket snapshot (bucket mounted at /data; logs mount status when absent)
-SESSION_SNAPSHOT=/data/qq_session.tar.gz
-python3 /app/bot/scripts/session_keeper.py restore --qq-dir /app/.config/QQ --snapshot "$SESSION_SNAPSHOT" || true
-mkdir -p /app/.config/QQ/NapCat/temp
-chown -R napcat:napcat /app/.config/QQ 2>/dev/null || true
-
 # 4. Anti-detection (from upstream napcat-docker entrypoint)
 # 在 HF Spaces 非特权容器中 mount --bind 不可用，跳过反检测相关操作
 rm -rf "/tmp/.X1-lock"
@@ -119,15 +112,6 @@ with open(path, 'w') as f:
     done
 }
 sync_onebot11_config &
-
-# 5a. Session snapshot loop: pack changed QQ login data to the mounted bucket every 10 min
-session_backup_loop() {
-    while true; do
-        python3 /app/bot/scripts/session_keeper.py backup --qq-dir /app/.config/QQ --snapshot "$SESSION_SNAPSHOT"
-        sleep 600
-    done
-}
-session_backup_loop &
 
 # 6. Start Xvfb (virtual display)
 echo "[start] Starting Xvfb..."
@@ -168,12 +152,6 @@ start_qq() {
     done
 }
 start_qq &
-
-# 7a. Login watchdog: poll NapCat WebUI login status, auto quick-login after drops
-python3 /app/bot/scripts/session_keeper.py watch \
-    --webui http://127.0.0.1:7860 \
-    --config "$NAPCAT_CONFIG/webui.json" \
-    --account "${ACCOUNT:-}" &
 cd /app/bot
 
 # 8. Start NoneBot2 (foreground — keeps container alive)

@@ -78,7 +78,7 @@ git push
 | `ONEBOT_ACCESS_TOKEN` | NapCat ↔ NoneBot WS 认证 Token | 留空（不启用认证） |
 | `TARGET_GROUPS` | 每日推荐推送的目标群号 | 留空（不推送） |
 | `WEBUI_TOKEN` | NapCat WebUI 管理密码 | **启动时随机生成 24 位**，见启动日志 |
-| `ACCOUNT` | 指定 QQ 账号自动登录（可选） | 留空（手动扫码） |
+| `ACCOUNT` | 指定 QQ 账号（可选） | 留空 |
 | `SPACE_URL` | 防休眠自 ping 的 Space URL（可选，默认由 HF `SPACE_HOST` 推导） | 自动推导 |
 
 > 环境变量请通过 **HF Settings → Variables** 配置（Docker 构建上下文会排除 `.env`，README 中随代码推送的方式不可用）。
@@ -89,7 +89,7 @@ git push
 >
 > 想完全自己控制就显式设置 `WEBUI_TOKEN` 变量，同时把 Space 设为 private。**每次重启 token 都会变的部署方式不可取**——旧口令立刻作废。
 
-### 4. QQ 扫码登录（仅首次）
+### 4. QQ 扫码登录
 
 构建完成后，打开 Space URL → 自动进入 **NapCat WebUI 管理界面**：
 
@@ -99,9 +99,11 @@ git push
 4. 登录后在左侧 **网络配置** 确认 `bot`（WS 客户端）状态为 ✅ **已连接**
 5. 已连接即表示机器人就绪
 
-> **关于重启后是否需要重扫**：HF Spaces 磁盘是临时存储，但本项目已实现 QQ 会话快照持久化——在 Space Settings 挂载一个**私有** Storage Bucket 到 `/data`（read-write）并配置 `ACCOUNT` 后，容器重启会自动从快照恢复会话并快登，无需重新扫码。
-> **未挂载 bucket** 时该机制静默跳过，行为退回「每次重启都要重新扫码」。
-> 快照里包含 QQ 登录凭证，**bucket 必须是私有的**。即使挂了 bucket，腾讯风控强制验证时仍可能需要人工扫码，这属预期边界。
+> ⚠️ **容器每次重启都要重新扫码。** HF Spaces 磁盘是临时的，QQ 登录态不会跨重启保留。
+>
+> 本项目曾实现过「快照持久化 + 自动快登」来免掉这一步，实测未能走通（NTQQ 对恢复出来的会话判定为已失效），已于 2026-10-01 整块移除，详见 [AGENTS.md](AGENTS.md) 的记录。**请不要为此挂载 bucket 做会话持久化**——那套逻辑还会持续把失效会话当成有效数据覆盖掉。
+>
+> 目前挂载 bucket（到 `/data`）的唯一用途是**持久化 WebUI token**，避免每次重启都要去翻日志找密码。
 
 ### 5. 验证
 
@@ -260,8 +262,6 @@ JMComic-QQ-Bot/
 ├── SECURITY.md            # 安全策略（可选）
 ├── .gitignore
 ├── .dockerignore
-├── scripts/
-│   └── session_keeper.py  # QQ 会话快照 restore/backup/watch（仅标准库）
 ├── src/
 │   ├── _common.py        # run_sync 共享函数
 │   ├── jm_option.py      # jmcomic option 双检锁缓存

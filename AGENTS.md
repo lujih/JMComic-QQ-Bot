@@ -35,8 +35,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
 | `option.yml` | jmcomic 配置（`impl: api` + `async_impl: async_api` + `cache: false` + `client.timeout`，无 plugin 段，格式由 Feature 传入）。注意 `proxies: null` **不等于禁用代理**，见文件内注释 |
 | `Dockerfile` | 基于 `mlikiowa/napcat-docker` + Python venv + ffmpeg |
-| `start.sh` | 容器入口：配置写入 → NapCat 解包 → 会话恢复 → Xvfb → QQ 后台（含备份循环 + 登录 watchdog） → NoneBot 前台 |
-| `scripts/session_keeper.py` | QQ 会话持久化三合一：`restore`（启动时从快照恢复）/`backup`（每 10min 打包快照）/`watch`（掉线自动快登），仅标准库 |
+| `start.sh` | 容器入口：配置写入（含 WebUI token 持久化）→ NapCat 解包 → Xvfb → QQ 后台 → NoneBot 前台 |
 
 ## 开发命令
 
@@ -165,27 +164,29 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### 部署
 - 首次部署需通过 NapCat WebUI 扫码登录 QQ 小号
-- HF Spaces 磁盘为临时存储；QQ 会话经 Storage Buckets 持久化后，容器重启可自动快登恢复（见下节），仅腾讯风控强制验证时才需重新扫码
+- **HF Spaces 容器每次重启都要重新扫码**（磁盘是临时的）。这是当前明确接受的行为，不要再尝试做自动登录，理由见下节
 - 端口中：7860（HF Spaces 默认 → WebUI）、8080（内部 NoneBot WS 服务器）
 - 防休眠：双保险 — GitHub Actions（`.github/workflows/keepalive.yml`，每 24h 一次，推 GitHub main 生效）+ bot 内 `space_keepalive` job（每 24h，`SPACE_URL` 环境变量可覆盖默认 URL）；HF 休眠窗口 48h，两者互备，任一失效 48h 后会休眠
 - 休眠后首次 ping 需冷启动（1-2 分钟），keepalive curl 已带 `--retry 3 --retry-delay 20` 兜底
+- Space Settings 仍建议挂私有 bucket 到 `/data`——**仅用于持久化 WebUI token**（见 Dockerfile/start.sh 节），QQ 会话不再存进去
 
-### QQ 会话持久化（Storage Buckets）
-- Space Settings 挂载私有 bucket 到 `/data`（read-write）+ Secrets 配置 `ACCOUNT`=QQ 号；未挂载时各环节静默跳过，行为退回首次部署模式
-- 混合模式：QQ 工作目录始终在本地磁盘，bucket 只存 `qq_session.tar.gz` 快照 —— **勿把 `/app/.config/QQ` 直接指到挂载点**，NTQQ 数据库是 SQLite，跑在对象存储 FUSE 上有锁/损坏风险
-- NTQQ 真实目录布局（NapCat v4.18.7 实测）：`{dataPath}/nt_qq/global/` 全局配置（**QQ 启动即创建，非登录证据**）；账号数据在 `{dataPath}/nt_qq_<hash>/`（内含 `nt_qq/nt_db/nt_msg.db` 等 SQLite 与 `nt_data/` 媒体缓存）——登录凭证判据 = `nt_qq_<hash>/` 目录存在，**不存在 `nt_qq.db` 这个文件**
-- 链路：启动早期 `restore`（解压校验含 `nt_qq_*` 账号数据才换入，防半包污染）→ 后台循环每 10min `backup`（mtime 变化检测 + tmp 文件原子 replace）→ `watch` 每 2min 轮询 WebUI 登录状态，掉线自动调 QuickLogin API
-- **`restore` 全程禁用 `os.rename` 搬运目录项**——HF Space 实测会连撞两种 errno，只有 `shutil.move` 能同时扛住：
-  - `EBUSY(16) Device or resource busy`：`/app/.config/QQ` 本身是 mount point（基镜像声明 VOLUME），内核禁止 rename/delete 挂载点
-  - `EXDEV(18) Invalid cross-device link`：`QQ/` 下还有独立挂载（实测 `QQ/NapCat` 就是），与 `QQ.old` 所在文件系统不同
-  - 历史实现先在「rename 整个 qq_dir」撞 EBUSY；改成逐项 rename 后又在 NapCat 子目录撞 EXDEV，**而回滚用的是同一个 rename，跟着一起炸**
-  - 正确做法：`_drain_dir()` / `_move_tree()` 统一走 `shutil.move`（对 EXDEV 自动回退到拷贝+删源）；单个子项若自己也是挂载点挪不动，就保留原地让后续解压覆盖
-  - **症状特征**：容器照常 running、NoneBot 正常、日志里只有 `OSError: [Errno 16]` 或 `[Errno 18]` 的 `[session]` 行——`start.sh` 用 `|| true` 调 restore，异常被吞，**会话恢复静默失效、每次重启都是冷启动**。判据看有没有 `[session] 已从快照恢复 QQ 登录数据`
-  - 这个 bug 从 `63d405f` 起就存在，2026-09-30 才在真实容器暴露；多子代理静态审查（无容器环境）没能发现，说明 restore 这类"只在真实挂载布局下才触发"的路径必须实机验证
-- watchdog 参数：宽限 5min（避开正常登录耗时）、连续 2 次未登录才动手、最多快登 12 次（约 24min）后放弃并打人工扫码提示 —— 风控强制验证时自动化到不了，属预期边界；本地无 `nt_qq_*` 时首次快登前即放弃（新容器无凭证，快登注定失败）
-- NapCat WebUI API 鉴权链路（v4.18.7）：token 不能直传；`hash = sha256_hex(token + ".napcat")` → `POST /api/auth/login {"hash"}` 换 1h 有效 Credential → `Authorization: Bearer <Credential>`；`POST /api/QQLogin/CheckLoginStatus` 查状态、`POST /api/QQLogin/SetQuickLogin {"uin"}` 快登；`/auth/login` 有 60s 窗口 3 次限速（watchdog 每轮复用 credential 不触顶）
-- 打包排除 `log/cache/temp/GPUCache/nt_data` 等缓存与媒体目录控体积（`nt_data` 是聊天图片/视频缓存会膨胀到 GB 级）；快照含登录凭证，bucket 必须私有
-- 已知失效但无害：`start.sh` 的 `sync_onebot11_config` 仍按旧布局扫 `<uin>/nt_qq.db`，永不命中——单账号下默认 `onebot11.json` 已足够（token 在写入通用配置时注入），多账号场景才需重写该函数
+### ~~QQ 会话持久化~~ 已放弃（2026-10-01）
+曾实现 `scripts/session_keeper.py` 做「启动时从桶里恢复会话 + 每 10min 备份 + 掉线自动快登」，**已整块删除**。不要重新做，除非有新的证据支撑。
+
+失败过程（避免后人重走一遍）：
+1. **恢复逻辑一直是坏的，且静默**：`/app/.config/QQ` 是 mount point，rename 撞 `EBUSY(16)`；换成逐项 rename 后 `QQ/NapCat` 这个嵌套挂载又撞 `EXDEV(18)` 跨设备链接。而 `start.sh` 用 `|| true` 调 restore，异常被吞——容器照常 running、NoneBot 照常启动，**唯一症状是每次重启都得重扫**。这个 bug 从 `63d405f` 引入起就存在，直到 2026-09-30 才在真实容器暴露（多子代理静态审查没有容器环境，查不出只在真实挂载布局下才触发的路径）
+2. 修好搬运（统一走 `shutil.move`）后，快照确实能换入、日志打出「已从快照恢复」，但 **NTQQ 仍判定「登录态已失效，请重新登录」**——文件到位了，服务端不认
+3. 最致命的是 `has_login_data()` 只判 `nt_qq_<hash>/` 目录是否存在。恢复进来的目录必然存在，于是 backup 循环会把**已失效的会话**当有效数据继续打包，覆盖掉仅存的那份好快照
+4. 即便修好 3，快照也只对「刚备份完就重启」这个窗口有效；放几小时就失效，等于没有
+
+教训：
+- **静默失败比功能缺失更危险**。当时若 restore 失败时让容器起不来，一眼就能发现
+- 「备份」类功能必须校验**有效性**而非**存在性**，否则会持续覆盖掉好数据
+- 这类只在特定运行时环境（挂载布局、远端服务行为）才触发的逻辑，纯静态审查不可靠，必须实机验证
+
+保留的两点相关知识：
+- NapCat WebUI API 鉴权链路（v4.18.7）：token 不能直传；`hash = sha256_hex(token + ".napcat")` → `POST /api/auth/login {"hash"}` 换 1h 有效 Credential → `Authorization: Bearer <Credential>`；`/auth/login` 有 60s 窗口 3 次限速
+- `start.sh` 的 `sync_onebot11_config` 仍按旧布局扫 `<uin>/nt_qq.db`，永不命中——单账号下默认 `onebot11.json` 已足够（token 在写入通用配置时注入），多账号场景才需重写该函数
 
 ## 命令
 
