@@ -10,12 +10,25 @@ NAPCAT_DIR=/app/napcat
 NAPCAT_CONFIG=$NAPCAT_DIR/config
 mkdir -p "$NAPCAT_CONFIG"
 
-# 0a. WebUI token：优先用环境变量，未设置则随机生成。
-# 随机而非固定默认值的原因：NapCat WebUI 绑 0.0.0.0:7860，HF Spaces 默认把 public 端口直出，
-# 而 token 是管理 API 的唯一鉴权闸门（session_keeper 用它换 Credential 调查状态/快登），
-# 写死的公开常量等于把 QQ 账号管理权对全网公开。随机 token 从 Space 日志取（仅所有者可见）。
-# 显式覆盖 WEBUI_TOKEN 的部署（固定口令 + Space 设为 private）行为不变。
-WEBUI_TOKEN="${WEBUI_TOKEN:-$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)}"
+# 0a. WebUI token：环境变量 > /data 里已存的 > 新随机生成。
+# 为什么要随机：WebUI 绑 0.0.0.0:7860，HF Spaces 默认把 public 端口直出，而 token 是
+# 管理 API 的唯一鉴权闸门（session_keeper 用它换 Credential 调查状态/快登），写死的
+# 公开常量等于把 QQ 账号管理权对全网公开。
+# 为什么存到 /data：每次重启都换新 token 会让「要进 WebUI 就得先去翻日志」，旧 token
+# 立刻作废，实测中这是个很烦的运维退化。存在桶里既跨重启稳定，又不等于任何公开常量。
+WEBUI_TOKEN_FILE=/data/webui_token
+WEBUI_TOKEN="${WEBUI_TOKEN:-}"
+if [ -z "$WEBUI_TOKEN" ] && [ -s "$WEBUI_TOKEN_FILE" ]; then
+    WEBUI_TOKEN="$(cat "$WEBUI_TOKEN_FILE")"
+    echo "[start] Reusing WebUI token from $WEBUI_TOKEN_FILE"
+fi
+if [ -z "$WEBUI_TOKEN" ]; then
+    WEBUI_TOKEN="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
+    echo "[start] Generated a new WebUI token"
+    # 存盘失败（未挂 bucket）不影响启动，只是下次重启会换新 token
+    { echo "$WEBUI_TOKEN" > "$WEBUI_TOKEN_FILE"; } 2>/dev/null \
+        || echo "[start] WARNING: cannot persist WebUI token to $WEBUI_TOKEN_FILE (bucket not mounted?)" >&2
+fi
 
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
 echo "[start] Writing NapCat WebUI config (port 7860)..."
@@ -27,11 +40,12 @@ cat > "$NAPCAT_CONFIG/webui.json" << EOF
     "loginRate": 3
 }
 EOF
-# 随机 token 只打印一次；HF Space 日志仅所有者可见，首次扫码登录时需要它
+# 打印一次；HF Space 日志仅所有者可见，扫码登录时需要它
 echo "[start] NapCat WebUI token: ${WEBUI_TOKEN}"
 # Token 已写入配置文件，从环境变量中移除，减少子进程暴露面
 # ONEBOT 侧：NoneBot 适配器读 ONEBOT_ACCESS_TOKEN，NapCat 配置注入同一值；先备份再 unset
 unset WEBUI_TOKEN
+unset WEBUI_TOKEN_FILE
 ONEBOT_TOKEN_BACKUP="${ONEBOT_ACCESS_TOKEN:-${ONEBOT_TOKEN:-}}"
 unset ONEBOT_TOKEN
 unset ONEBOT_ACCESS_TOKEN

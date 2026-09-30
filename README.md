@@ -85,7 +85,9 @@ git push
 >
 > ⚠️ **`DRIVER` 必填**：`.env` 被 `.dockerignore` 排除、不会进镜像，容器里缺它时 nonebot2 会在启动第一步读 stdin 询问驱动并崩掉，表现为「Space 反复重启、日志里没有业务错误」。
 >
-> ⚠️ **`WEBUI_TOKEN` 默认随机生成**，并在启动日志里打印一次（HF Space 日志仅所有者可见）。首次扫码登录需要去 Container Logs 搜 `[start] NapCat WebUI token:` 复制。想用固定口令就显式设置该变量，同时把 Space 设为 private。
+> ⚠️ **`WEBUI_TOKEN` 默认随机生成**，并存在挂载的 bucket 里（`/data/webui_token`）跨重启复用，同时在启动日志里打印一次（HF Space 日志仅所有者可见）。首次扫码登录需要去 Container Logs 搜 `[start] NapCat WebUI token:` 复制。
+>
+> 想完全自己控制就显式设置 `WEBUI_TOKEN` 变量，同时把 Space 设为 private。**每次重启 token 都会变的部署方式不可取**——旧口令立刻作废。
 
 ### 4. QQ 扫码登录（仅首次）
 

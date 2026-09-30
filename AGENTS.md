@@ -66,7 +66,12 @@ pip install -e path/to/JMComic-Crawler-Python
 - `nonebot2` 须安装 `[fastapi]` extras（纯包缺 fastapi）
 - `/app/.config/QQ/NapCat/temp` 权限：需 `mkdir + chown napcat:napcat`
 - `FFMPEG_PATH` 声明后须 `apt-get install ffmpeg`
-- `start.sh` 用 `set -u` 但**不用** `set -e`（前后台进程并存）；`WEBUI_TOKEN` 默认**随机生成 24 位**（`tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24`），并在写完配置后打印一次到 Space 日志（仅 Space 所有者可见，扫码登录时要用），随后 `unset`；**不要再改回固定默认值**——WebUI 绑 `0.0.0.0:7860` 且 HF Spaces 默认 public 端口直出，写死口令等于把 QQ 账号管理权公开。显式设置 `WEBUI_TOKEN` 环境变量的部署行为不变（固定口令 + Space 设 private）。NapCat 扫码登录后可能强制改密一次。`ONEBOT_TOKEN` 先备份到 `ONEBOT_TOKEN_BACKUP` 再 unset，供配置注入使用（NoneBot 适配器读 `ONEBOT_ACCESS_TOKEN`，勿用旧名 `ONEBOT_TOKEN`）；SIGTERM trap 负责优雅关闭；`sync_onebot11_config` 后台循环按账号同步配置
+- `start.sh` 用 `set -u` 但**不用** `set -e`（前后台进程并存）；`WEBUI_TOKEN` 取值优先级 = **环境变量 > `/data/webui_token` 已存的 > 新随机生成 24 位**（`tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24`），写完配置后打印一次到 Space 日志（仅 Space 所有者可见，扫码登录时要用），随后 `unset`
+  - **不要改回固定默认值**（如 `jmcomic`）：WebUI 绑 `0.0.0.0:7860` 且 HF Spaces 默认 public 端口直出，写死口令等于把 QQ 账号管理权对全网公开
+  - **也不要每次重启都换新 token**：那会退化成「要进 WebUI 就得先去翻日志」，旧 token 立刻作废。2026-09-30 实测踩过——连续三次重启产生三个 token，用户拿旧的一直停在 Web Login 页面。所以生成的 token 要落到 `/data/webui_token` 复用；桶未挂时存盘失败只打 WARNING，不阻断启动
+  - 排查「停在 Web Login」先看两件事：① 是不是用了上一次启动的 token（日志搜最近一条 `[start] NapCat WebUI token:`）；② `webui.json` 的 `loginRate: 3`，连续失败 3 次会限流，等几分钟再试
+  - NapCat 扫码登录后可能强制改密一次
+- `ONEBOT_TOKEN` 先备份到 `ONEBOT_TOKEN_BACKUP` 再 unset，供配置注入使用（NoneBot 适配器读 `ONEBOT_ACCESS_TOKEN`，勿用旧名 `ONEBOT_TOKEN`）；SIGTERM trap 负责优雅关闭；`sync_onebot11_config` 后台循环按账号同步配置
 - `ENV TZ=Asia/Shanghai`（否则 cron 按 UTC，每日推荐会在北京 17:00 推送）
 - 容器 HEALTHCHECK 探测 `http://127.0.0.1:7860`（NapCat WebUI），不是 8080（NoneBot 无根路由，探测会恒 404）
 
