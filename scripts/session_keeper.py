@@ -84,14 +84,47 @@ def _is_link(tarinfo):
             or tarinfo.isblk() or tarinfo.isfifo() or tarinfo.isdev())
 
 
+def _drain_dir(src, dst):
+    """把 src 目录下的**内容**（不是 src 本身）挪到 dst，返回挪走的条目名。
+
+    为什么不能 os.rename(src, ...)：
+    /app/.config/QQ 可能是个 mount point（基础镜像声明了 VOLUME，或平台把它挂上了），
+    内核不允许重命名/删除挂载点，会抛 OSError EBUSY (Device or resource busy)。
+    早先的实现正是栽在这里——快照解压成功、校验通过，最后一步 rename 失败，
+    整个会话恢复静默失效（外层 `|| true` 吞掉，启动照常继续，只是没恢复任何东西）。
+    逐个挪子项则对挂载点完全安全：挂载点本身不动，只搬它里面的东西。
+    """
+    moved = []
+    if not os.path.isdir(src):
+        return moved
+    os.makedirs(dst, exist_ok=True)
+    for name in os.listdir(src):
+        s = os.path.join(src, name)
+        d = os.path.join(dst, name)
+        try:
+            shutil.rmtree(d, ignore_errors=True) if os.path.isdir(d) and not os.path.islink(d) else os.remove(d)
+        except OSError:
+            pass
+        try:
+            os.rename(s, d)
+            moved.append(name)
+        except OSError as e:
+            # 单个条目挪不动（比如它自己也是挂载点）就留在原地，让它被后面的解压覆盖
+            log(f"清空旧数据时 {name} 挪动失败(保留): {e}")
+    return moved
+
+
 def cmd_restore(args):
     snap, qq_dir = args.snapshot, args.qq_dir
     if not os.path.isfile(snap):
         log(f"无会话快照({snap});{describe_mount(os.path.dirname(snap) or '/')},按首次部署处理")
         return 0
     tmp = qq_dir + ".restore_tmp"
+    old = qq_dir + ".old"
     shutil.rmtree(tmp, ignore_errors=True)
+    shutil.rmtree(old, ignore_errors=True)
     try:
+        os.makedirs(tmp, exist_ok=True)
         with tarfile.open(snap, "r:gz") as tf:
             members = [m for m in tf.getmembers()
                        if not m.name.startswith("/")
@@ -113,12 +146,32 @@ def cmd_restore(args):
         log("快照中无账号登录数据(nt_qq_*),放弃恢复")
         shutil.rmtree(tmp, ignore_errors=True)
         return 1
-    old = qq_dir + ".old"
-    shutil.rmtree(old, ignore_errors=True)
-    if os.path.isdir(qq_dir):
-        os.rename(qq_dir, old)
-    os.rename(tmp, qq_dir)
-    shutil.rmtree(old, ignore_errors=True)
+
+    # 先把现有内容挪到 .old，再把 tmp 里的内容搬进 qq_dir。
+    # 全程不 rename/删除 qq_dir 本身，因此它是不是 mount point 都无所谓。
+    try:
+        _drain_dir(qq_dir, old)
+        os.makedirs(qq_dir, exist_ok=True)
+        for name in os.listdir(tmp):
+            os.rename(os.path.join(tmp, name), os.path.join(qq_dir, name))
+    except Exception as e:
+        log(f"恢复换入失败,回滚旧数据: {e}")
+        try:
+            _drain_dir(qq_dir, tmp + ".failed")
+            if os.path.isdir(old):
+                for name in os.listdir(old):
+                    os.rename(os.path.join(old, name), os.path.join(qq_dir, name))
+        except OSError as re:
+            log(f"回滚也失败,QQ 目录可能为空:{re}")
+        return 1
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(tmp + ".failed", ignore_errors=True)
+        shutil.rmtree(old, ignore_errors=True)
+
+    if not has_login_data(qq_dir):
+        log("恢复后仍无账号登录数据(nt_qq_*),恢复无效")
+        return 1
     log("已从快照恢复 QQ 登录数据,NapCat 可尝试快速登录")
     return 0
 

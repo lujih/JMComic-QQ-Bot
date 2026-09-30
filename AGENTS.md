@@ -170,6 +170,7 @@ pip install -e path/to/JMComic-Crawler-Python
 - 混合模式：QQ 工作目录始终在本地磁盘，bucket 只存 `qq_session.tar.gz` 快照 —— **勿把 `/app/.config/QQ` 直接指到挂载点**，NTQQ 数据库是 SQLite，跑在对象存储 FUSE 上有锁/损坏风险
 - NTQQ 真实目录布局（NapCat v4.18.7 实测）：`{dataPath}/nt_qq/global/` 全局配置（**QQ 启动即创建，非登录证据**）；账号数据在 `{dataPath}/nt_qq_<hash>/`（内含 `nt_qq/nt_db/nt_msg.db` 等 SQLite 与 `nt_data/` 媒体缓存）——登录凭证判据 = `nt_qq_<hash>/` 目录存在，**不存在 `nt_qq.db` 这个文件**
 - 链路：启动早期 `restore`（解压校验含 `nt_qq_*` 账号数据才换入，防半包污染）→ 后台循环每 10min `backup`（mtime 变化检测 + tmp 文件原子 replace）→ `watch` 每 2min 轮询 WebUI 登录状态，掉线自动调 QuickLogin API
+- **`restore` 绝不能 `os.rename(qq_dir, ...)`**：`/app/.config/QQ` 是 mount point（基镜像声明了 VOLUME），内核对挂载点的 rename/delete 一律 `EBUSY (Device or resource busy)`。历史实现正栽在这里——解压成功、校验通过，最后一步 rename 抛异常，又被 start.sh 的 `|| true` 吞掉，**整个会话恢复静默失效**（2026-09-30 在 HF Space 实测才暴露）。正确做法是 `_drain_dir()` 逐个挪走 `qq_dir` 的**子项**再搬入新内容，全程不动 `qq_dir` 本身；失败时从 `.old` 回滚。症状特征：日志有 `OSError: [Errno 16]` traceback，但容器照常 running、QQ 却是冷启动
 - watchdog 参数：宽限 5min（避开正常登录耗时）、连续 2 次未登录才动手、最多快登 12 次（约 24min）后放弃并打人工扫码提示 —— 风控强制验证时自动化到不了，属预期边界；本地无 `nt_qq_*` 时首次快登前即放弃（新容器无凭证，快登注定失败）
 - NapCat WebUI API 鉴权链路（v4.18.7）：token 不能直传；`hash = sha256_hex(token + ".napcat")` → `POST /api/auth/login {"hash"}` 换 1h 有效 Credential → `Authorization: Bearer <Credential>`；`POST /api/QQLogin/CheckLoginStatus` 查状态、`POST /api/QQLogin/SetQuickLogin {"uin"}` 快登；`/auth/login` 有 60s 窗口 3 次限速（watchdog 每轮复用 credential 不触顶）
 - 打包排除 `log/cache/temp/GPUCache/nt_data` 等缓存与媒体目录控体积（`nt_data` 是聊天图片/视频缓存会膨胀到 GB 级）；快照含登录凭证，bucket 必须私有
