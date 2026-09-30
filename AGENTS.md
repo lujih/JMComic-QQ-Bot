@@ -170,7 +170,13 @@ pip install -e path/to/JMComic-Crawler-Python
 - 混合模式：QQ 工作目录始终在本地磁盘，bucket 只存 `qq_session.tar.gz` 快照 —— **勿把 `/app/.config/QQ` 直接指到挂载点**，NTQQ 数据库是 SQLite，跑在对象存储 FUSE 上有锁/损坏风险
 - NTQQ 真实目录布局（NapCat v4.18.7 实测）：`{dataPath}/nt_qq/global/` 全局配置（**QQ 启动即创建，非登录证据**）；账号数据在 `{dataPath}/nt_qq_<hash>/`（内含 `nt_qq/nt_db/nt_msg.db` 等 SQLite 与 `nt_data/` 媒体缓存）——登录凭证判据 = `nt_qq_<hash>/` 目录存在，**不存在 `nt_qq.db` 这个文件**
 - 链路：启动早期 `restore`（解压校验含 `nt_qq_*` 账号数据才换入，防半包污染）→ 后台循环每 10min `backup`（mtime 变化检测 + tmp 文件原子 replace）→ `watch` 每 2min 轮询 WebUI 登录状态，掉线自动调 QuickLogin API
-- **`restore` 绝不能 `os.rename(qq_dir, ...)`**：`/app/.config/QQ` 是 mount point（基镜像声明了 VOLUME），内核对挂载点的 rename/delete 一律 `EBUSY (Device or resource busy)`。历史实现正栽在这里——解压成功、校验通过，最后一步 rename 抛异常，又被 start.sh 的 `|| true` 吞掉，**整个会话恢复静默失效**（2026-09-30 在 HF Space 实测才暴露）。正确做法是 `_drain_dir()` 逐个挪走 `qq_dir` 的**子项**再搬入新内容，全程不动 `qq_dir` 本身；失败时从 `.old` 回滚。症状特征：日志有 `OSError: [Errno 16]` traceback，但容器照常 running、QQ 却是冷启动
+- **`restore` 全程禁用 `os.rename` 搬运目录项**——HF Space 实测会连撞两种 errno，只有 `shutil.move` 能同时扛住：
+  - `EBUSY(16) Device or resource busy`：`/app/.config/QQ` 本身是 mount point（基镜像声明 VOLUME），内核禁止 rename/delete 挂载点
+  - `EXDEV(18) Invalid cross-device link`：`QQ/` 下还有独立挂载（实测 `QQ/NapCat` 就是），与 `QQ.old` 所在文件系统不同
+  - 历史实现先在「rename 整个 qq_dir」撞 EBUSY；改成逐项 rename 后又在 NapCat 子目录撞 EXDEV，**而回滚用的是同一个 rename，跟着一起炸**
+  - 正确做法：`_drain_dir()` / `_move_tree()` 统一走 `shutil.move`（对 EXDEV 自动回退到拷贝+删源）；单个子项若自己也是挂载点挪不动，就保留原地让后续解压覆盖
+  - **症状特征**：容器照常 running、NoneBot 正常、日志里只有 `OSError: [Errno 16]` 或 `[Errno 18]` 的 `[session]` 行——`start.sh` 用 `|| true` 调 restore，异常被吞，**会话恢复静默失效、每次重启都是冷启动**。判据看有没有 `[session] 已从快照恢复 QQ 登录数据`
+  - 这个 bug 从 `63d405f` 起就存在，2026-09-30 才在真实容器暴露；多子代理静态审查（无容器环境）没能发现，说明 restore 这类"只在真实挂载布局下才触发"的路径必须实机验证
 - watchdog 参数：宽限 5min（避开正常登录耗时）、连续 2 次未登录才动手、最多快登 12 次（约 24min）后放弃并打人工扫码提示 —— 风控强制验证时自动化到不了，属预期边界；本地无 `nt_qq_*` 时首次快登前即放弃（新容器无凭证，快登注定失败）
 - NapCat WebUI API 鉴权链路（v4.18.7）：token 不能直传；`hash = sha256_hex(token + ".napcat")` → `POST /api/auth/login {"hash"}` 换 1h 有效 Credential → `Authorization: Bearer <Credential>`；`POST /api/QQLogin/CheckLoginStatus` 查状态、`POST /api/QQLogin/SetQuickLogin {"uin"}` 快登；`/auth/login` 有 60s 窗口 3 次限速（watchdog 每轮复用 credential 不触顶）
 - 打包排除 `log/cache/temp/GPUCache/nt_data` 等缓存与媒体目录控体积（`nt_data` 是聊天图片/视频缓存会膨胀到 GB 级）；快照含登录凭证，bucket 必须私有

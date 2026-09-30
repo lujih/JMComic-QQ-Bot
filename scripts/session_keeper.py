@@ -87,12 +87,21 @@ def _is_link(tarinfo):
 def _drain_dir(src, dst):
     """把 src 目录下的**内容**（不是 src 本身）挪到 dst，返回挪走的条目名。
 
-    为什么不能 os.rename(src, ...)：
-    /app/.config/QQ 可能是个 mount point（基础镜像声明了 VOLUME，或平台把它挂上了），
-    内核不允许重命名/删除挂载点，会抛 OSError EBUSY (Device or resource busy)。
-    早先的实现正是栽在这里——快照解压成功、校验通过，最后一步 rename 失败，
-    整个会话恢复静默失效（外层 `|| true` 吞掉，启动照常继续，只是没恢复任何东西）。
-    逐个挪子项则对挂载点完全安全：挂载点本身不动，只搬它里面的东西。
+    为什么不能用 rename 搬运条目——HF Space 的实测会连撞两种错误：
+      1. EBUSY(16) Device or resource busy
+         /app/.config/QQ 本身是 mount point（基镜像声明了 VOLUME），
+         内核不允许重命名/删除挂载点。
+      2. EXDEV(18) Invalid cross-device link
+         QQ/ 下还有独立挂载（实测 NapCat 子目录就是一例），它与 QQ.old
+         所在的父目录不在同一文件系统，rename 跨不过去。
+
+    早先的实现两处都栽了：先在「rename 整个 qq_dir」撞 EBUSY，改为逐项 rename
+    后又在 NapCat 子目录撞 EXDEV，而回滚用的是同一个 rename，跟着一起炸——
+    结果是解压成功、校验通过、换入静默失败，会话恢复从来没生效过
+    （start.sh 用 `|| true` 调，异常被吞，容器照常 running）。
+
+    修法：改用 shutil.move，它对 EXDEV 会自动回退到「拷贝 + 删源」；
+    仍失败（该子项自己也是挂载点、无法删除）就保留原地，让后续解压覆盖它。
     """
     moved = []
     if not os.path.isdir(src):
@@ -102,16 +111,26 @@ def _drain_dir(src, dst):
         s = os.path.join(src, name)
         d = os.path.join(dst, name)
         try:
-            shutil.rmtree(d, ignore_errors=True) if os.path.isdir(d) and not os.path.islink(d) else os.remove(d)
+            if os.path.isdir(d) and not os.path.islink(d):
+                shutil.rmtree(d, ignore_errors=True)
+            else:
+                os.remove(d)
         except OSError:
             pass
         try:
-            os.rename(s, d)
+            shutil.move(s, d)
             moved.append(name)
         except OSError as e:
-            # 单个条目挪不动（比如它自己也是挂载点）就留在原地，让它被后面的解压覆盖
-            log(f"清空旧数据时 {name} 挪动失败(保留): {e}")
+            # 该子项挪不动（自己也是挂载点、或跨设备且 move 也失败）：
+            # 保留原地，后续解压会覆盖同名内容
+            log(f"清空旧数据时 {name} 挪动失败(保留原地): {e}")
     return moved
+
+
+def _move_tree(src, dst):
+    """把 tmp 的内容搬进 qq_dir，同样走 shutil.move 以容忍跨设备。"""
+    for name in os.listdir(src):
+        shutil.move(os.path.join(src, name), os.path.join(dst, name))
 
 
 def cmd_restore(args):
@@ -148,20 +167,19 @@ def cmd_restore(args):
         return 1
 
     # 先把现有内容挪到 .old，再把 tmp 里的内容搬进 qq_dir。
-    # 全程不 rename/删除 qq_dir 本身，因此它是不是 mount point 都无所谓。
+    # 全程不 rename/删除 qq_dir 本身（它可能是 mount point），且用 shutil.move
+    # 而非 os.rename（子项可能跨设备，move 会自动回退到拷贝+删源）。
     try:
         _drain_dir(qq_dir, old)
         os.makedirs(qq_dir, exist_ok=True)
-        for name in os.listdir(tmp):
-            os.rename(os.path.join(tmp, name), os.path.join(qq_dir, name))
+        _move_tree(tmp, qq_dir)
     except Exception as e:
         log(f"恢复换入失败,回滚旧数据: {e}")
         try:
             _drain_dir(qq_dir, tmp + ".failed")
             if os.path.isdir(old):
-                for name in os.listdir(old):
-                    os.rename(os.path.join(old, name), os.path.join(qq_dir, name))
-        except OSError as re:
+                _move_tree(old, qq_dir)
+        except Exception as re:
             log(f"回滚也失败,QQ 目录可能为空:{re}")
         return 1
     finally:
