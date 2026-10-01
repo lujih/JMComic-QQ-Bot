@@ -272,7 +272,12 @@ async def _download_entity(
 
     if _is_cache_valid(out_path):
         from plugins.jm.upload import _upload_and_cleanup
-        await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=None)
+        try:
+            await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=None)
+        except Exception as e:
+            jm_log(f'{log_tag}.upload', f'缓存命中后的上传失败 ({entity_id})', e)
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish("❌ 上传失败，请稍后重试")
         return
 
     # 处理锁：键是「所属专辑 id」而不是本次请求的 entity_id。
@@ -336,7 +341,12 @@ async def _download_entity(
             if out_path.exists() and out_path.stat().st_size > 0:
                 from plugins.jm.upload import _upload_and_cleanup
                 await jm_cmd.send("⚠️ 部分图片下载失败，文件已生成（可能缺图）")
-                await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=dl_dir)
+                try:
+                    await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=dl_dir)
+                except Exception as e:
+                    jm_log(f'{log_tag}.upload', f'缺图产物的上传失败 ({entity_id})', e)
+                    _clear_cooldown(cooldown_key)
+                    await jm_cmd.finish("❌ 文件已生成但上传失败，请稍后重试")
                 return
             out_path.unlink(missing_ok=True)
             shutil.rmtree(dl_dir, ignore_errors=True)
@@ -356,6 +366,14 @@ async def _download_entity(
             await jm_cmd.finish(f"❌ {fmt_name} 生成失败，文件未找到")
 
         from plugins.jm.upload import _upload_and_cleanup
-        await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=dl_dir)
+        # 上传阶段必须有自己的 try/except：它原本裸奔在下载的 try 之外，
+        # 上传失败（NapCat 掉线 / 群解散 / 文件被拒）会直接穿透到外层 finally，
+        # 表现是「下载完却毫无反馈」，且产物与下载目录残留到定时清理（30min 后）才回收。
+        try:
+            await _upload_and_cleanup(bot, event, out_path, entity_id, cooldown_key, ext, fmt_name, dl_dir=dl_dir)
+        except Exception as e:
+            jm_log(f'{log_tag}.upload', f'上传失败 ({entity_id})，产物已生成但未送达', e)
+            _clear_cooldown(cooldown_key)
+            await jm_cmd.finish(f"❌ {fmt_name} 已生成，但上传失败，请稍后重试")
     finally:
         _unlock_dl_root(dl_root)

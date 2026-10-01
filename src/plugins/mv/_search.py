@@ -16,19 +16,22 @@ _TIMEOUT = 20
 FIELDS_FIRST = {'title', 'cover', 'date', 'studio', 'duration', 'favorites', 'director', 'series', 'rating'}
 FIELDS_UNION = {'actresses', 'categories', 'magnets'}
 
-def _search_with_timeout(fn, code, timeout):
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+def _search_with_timeout(fn, code):
+    """跑单个站点搜索，异常返回 {}。
+
+    调用方 `search_video` 已用 pool.submit 把本函数投递到工作线程，
+    这里**直接同步执行**——不再新建 ThreadPoolExecutor（原实现每次搜索
+    会多创建 3 个池对象，纯开销）。
+
+    超时由各站点自己兜底：`search_missav`/`search_javdb` 的 StealthyFetcher
+    传 timeout=20+retries=1，jav321 的 httpx 也带 timeout，调用方还有
+    as_completed(timeout=55) 全局上限。所以这里不需要额外计时器。
+    """
     try:
-        future = pool.submit(fn, code)
-        return future.result(timeout=timeout)
-    except concurrent.futures.TimeoutError:
-        jm_log('jm.mv.search', f'{fn.__name__} 超时 ({timeout}s)，跳过')
-        return {}
+        return fn(code)
     except Exception as e:
         jm_log('jm.mv.search', f'{fn.__name__} 异常', e)
         return {}
-    finally:
-        pool.shutdown(wait=False)
 
 
 def search_video(query: str) -> dict:
@@ -39,9 +42,9 @@ def search_video(query: str) -> dict:
     # 并行搜索三站，各站独立超时，互不阻塞
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
     try:
-        f_missav = pool.submit(_search_with_timeout, search_missav, code, 45)
-        f_javdb = pool.submit(_search_with_timeout, search_javdb, code, 45)
-        f_jav321 = pool.submit(_search_with_timeout, _search_jav321, code, 20)
+        f_missav = pool.submit(_search_with_timeout, search_missav, code)
+        f_javdb = pool.submit(_search_with_timeout, search_javdb, code)
+        f_jav321 = pool.submit(_search_with_timeout, _search_jav321, code)
         try:
             for future in concurrent.futures.as_completed(
                 [f_missav, f_javdb, f_jav321], timeout=55
