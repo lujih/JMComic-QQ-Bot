@@ -81,7 +81,9 @@ pip install -e path/to/JMComic-Crawler-Python
 - async client 查询（`get_album_detail`/`ranking`/`search_site`/`album_pagination`，`async_impl: async_api`）直接 `await` + `wait_for`，不要再套 `run_sync`
 - **下载走 `JmAsyncDownloader`（jmcomic ≥2.7.0），不再用 run_sync 跑同步下载器**：`progress.py` 子类化 `JmAsyncDownloader`（`async def before_photo` 检查 `cancel_event` 设 `photo.skip`），`_download_entity` 里 `async with dler` + `await asyncio.wait_for(_dl(), dl_timeout)`；超时即取消协程，async-with 保证 client/decode 池清理，无孤儿线程
 - `JmAsyncDownloader` 继承 `BaseDownloader`，`add_features`/`raise_if_has_exception` 均在基类，Feature 导出经 `_run_in_decode_pool(super().after_album)` 照常触发；`async with dler` 创建独立 async client（不再共享 option 的同步 client）
-- MV 搜索并行化：`_search.py` 三站改为 `concurrent.futures.ThreadPoolExecutor(max_workers=3)` 并行执行，每站独立超时互不阻塞
+- MV 搜索并行化：`_search.py` 三站用 `concurrent.futures.ThreadPoolExecutor(max_workers=3)` 并行执行，各站互不阻塞（2026-10-01 去掉了内层多余的 per-site 线程池，详见下条）
+- **`_search_with_timeout` 里不要再建线程池**：调用方已 `pool.submit()` 把该函数投递到工作线程，函数内部直接同步跑 `fn(code)` 即可。超时由三层保证：各站点自身（StealthyFetcher `timeout=20, retries=1` / jav321 的 httpx `timeout`）、调用方 `as_completed(timeout=55)` 全局上限、`_mv_search_semaphore=2` 的并发闸门。历史上这里多套了一层 `ThreadPoolExecutor(max_workers=1)`，每次搜索白建 3 个池对象
+- **`_upload_and_cleanup` 的三处调用各自包 try/except**（缓存命中 / 部分缺图但产物已生成 / 正常完成）：上传失败会直接穿透到 `_download_entity` 的外层 finally，症状是「下载完毫无反馈」+ 产物残留到定时清理（30min 后）+ 冷却不清除导致用户 15s 后重试再失败一次
 - MV seeders/leechers 取反修复：Sukebei 表 `cols[-3]=seeders`、`cols[-2]=leechers`
 - MV 磁链搜索多格式兜底（`mv/handler.py`）：先搜原始（`PRED-485`）再搜去分隔（`pred485`），无短横输入时反推标准格式，三 query 并行（`asyncio.gather`），结果按 BTIH 去重合并
 - MV 资源控制：全局 `_mv_search_semaphore = Semaphore(2)` 限制并发 Chromium；三源结果 30min 内存缓存（`_av_info_cache`，翻页只重跑 sukebei 不重跑 Chromium）；每用户 15s 冷却 key `f"{user_id}:mv:{code}"`（仅三源搜索占用，缓存命中翻页不占）；StealthyFetcher fetch 必须传 `retries=1`（默认 3 次会让超时弃置后的孤儿浏览器多活 ~2 分钟）；**勿设 `adaptive=True`**（无效配置，每次 fetch 还会建 sqlite storage 连接写库）
