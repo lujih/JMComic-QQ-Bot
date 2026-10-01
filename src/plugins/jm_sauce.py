@@ -184,6 +184,12 @@ async def _fetch_image(client: httpx.AsyncClient, url: str) -> bytes:
     return resp.content
 
 
+def _read_file(path: str) -> bytes:
+    """同步读本地图片，供 loop.run_in_executor 调用（不可写成 async）。"""
+    with open(path, "rb") as f:
+        return f.read()
+
+
 async def _safe(source: str, coro) -> Any:
     try:
         return await coro
@@ -407,8 +413,12 @@ async def handle_ss(bot: Bot, event: GroupMessageEvent):
             # NoneBot 的 handler traceback。
             try:
                 if kind == "path":
-                    with open(value, "rb") as f:
-                        img_bytes = f.read()
+                    # 本地路径来自 NapCat get_image 兜底，图片可达数 MB。
+                    # 同步 read() 会阻塞整个事件循环（/jm 下载、/ss 其它源全部卡住），
+                    # 必须丢进默认线程池；此处是一次性小任务，不值得为它单独建
+                    # ThreadPoolExecutor，所以直接用 loop.run_in_executor(None, ...)。
+                    loop = asyncio.get_running_loop()
+                    img_bytes = await loop.run_in_executor(None, _read_file, value)
                     probe_url = ""
                 else:
                     img_bytes = await _fetch_image(client, value)

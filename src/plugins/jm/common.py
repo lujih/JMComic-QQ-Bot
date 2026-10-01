@@ -71,28 +71,34 @@ def _cleanup_stale_dirs() -> int:
         if not d.exists():
             continue
         try:
+            # 单次遍历收集 (mtime, entry)：原实现分「按时间删」和「按数量删」两轮，
+            # 各做一次 iterdir() + 每项一次 stat()，而每 5 分钟就要跑一次全量目录扫描。
+            # 这里遍历一次拿到 mtime，两种淘汰策略复用同一份数据。
+            entries = [(e.stat().st_mtime, e) for e in d.iterdir()]
+
             # 按时间清理：删除超过 _STALE_AGE 的目录和文件
-            for entry in d.iterdir():
-                if now - entry.stat().st_mtime > _STALE_AGE:
-                    if entry.is_dir():
-                        shutil.rmtree(entry, ignore_errors=True)
+            for mtime, e in entries:
+                if now - mtime > _STALE_AGE:
+                    if e.is_dir():
+                        shutil.rmtree(e, ignore_errors=True)
                     else:
-                        entry.unlink(missing_ok=True)
+                        e.unlink(missing_ok=True)
                     total += 1
 
             # 按数量清理：超过 _MAX_CACHE_ENTRIES 时删除最旧的（目录 + 文件）
-            entries = sorted(
-                d.iterdir(),
+            # 重新过滤一次，剔除上一步已删掉的条目，避免对已删除路径重复 stat/rmtree。
+            remaining = sorted(
+                (e for _, e in entries if e.exists()),
                 key=lambda e: e.stat().st_mtime,
             )
-            while len(entries) > _MAX_CACHE_ENTRIES:
-                e = entries[0]
+            while len(remaining) > _MAX_CACHE_ENTRIES:
+                e = remaining[0]
                 if e.is_dir():
                     shutil.rmtree(e, ignore_errors=True)
                 else:
                     e.unlink(missing_ok=True)
                 total += 1
-                entries = entries[1:]
+                remaining = remaining[1:]
         except OSError as e:
             jm_log('jm.common.cleanup', '清理失败', e)
 
