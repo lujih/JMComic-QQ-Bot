@@ -237,6 +237,8 @@ pip install -e path/to/JMComic-Crawler-Python
 - 命令注册与路由分离：`cmd.py` 定义 `on_command`（`priority=10`, `rule=is_type(GroupMessageEvent)`），`handler.py` 处理逻辑，`__init__.py` 里 `from . import handler` 完成装载；`bot.py` 用 `nonebot.load_plugin(f"plugins.{name}")` 循环加载（勿用 `load_plugins("src/plugins")`，见双命名空间坑）
 - 所有群命令只响应 `GroupMessageEvent`（`is_type` 规则）
 - `jm_info.py` / `jm_comment.py` / `jm_scheduler.py` / `jm_sauce.py` 是单文件插件，直接在文件内 `on_command` / `scheduler.scheduled_job`，无 cmd.py
+- **冷却检查一律用 `await _guard_cooldown(key, cmd)`**（`jm/common.py`），它内部调 `_check_cooldown` 并在命中时 `cmd.finish()` 后返回 True，调用方写 `if await _guard_cooldown(...): return`。不要再手写「`remaining = _check_cooldown(...)` + `if remaining: finish(...)`」三行样板——2026-10-01 前这套样板在 5 个文件里重复了 8 份，提示文案一改就要改 8 处
+- **同步阻塞调用一律不放在 event loop 里**。本地文件读、jmcomic 同步 API、Scrapling/StealthyFetcher 都必须经 `loop.run_in_executor` 或 `run_sync`。历史教训：`/ss` 兜底读 NapCat 本地图片曾用裸 `open().read()`，数 MB 图片会把整条事件循环卡住
 - 无测试套件、无 linter/CI 配置；验证手段为 `python -m py_compile` + 本地 `python bot.py` 启动
 
 

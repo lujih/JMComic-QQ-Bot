@@ -171,6 +171,20 @@ def _clear_cooldown(key: str):
         _last_use.pop(key, None)
 
 
+async def _guard_cooldown(key: str, cmd) -> bool:
+    """冷却闸门：命中冷却时通过 cmd.finish() 结束本次调用并返回 True。
+
+    全仓有 6+ 处「检查冷却 → 命中就提示」的三行样板，抽取到这里以保证提示
+    文案与 COOLDOWN_SECONDS 一致、改动只有一处。cmd 由调用方传自己的 matcher
+    （jm_cmd / mv_cmd / ss_cmd …），提示文案全局统一。
+    返回 False 表示未命中冷却，调用方继续正常流程。
+    """
+    remaining = _check_cooldown(key)
+    if remaining:
+        await cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+    return bool(remaining)
+
+
 def _is_dup_message(message_id: int) -> bool:
     global _last_seen_cleanup
     now = time.time()

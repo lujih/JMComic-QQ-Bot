@@ -16,7 +16,7 @@ from scrapling.parser import Selector
 from jmcomic import jm_log
 
 from jm_option import get_option as _get_option
-from plugins.jm.common import _check_cooldown, _clear_cooldown
+from plugins.jm.common import _guard_cooldown, _clear_cooldown
 
 __plugin_name__ = "jm_sauce"
 __plugin_usage__ = "/ss — 以图搜源（附图 / 回复含图消息 / 裸发自动用本群 2 分钟内最近一张图）"
@@ -393,9 +393,8 @@ async def _match_jm(title: str):
 @ss_cmd.handle()
 async def handle_ss(bot: Bot, event: GroupMessageEvent):
     cooldown_key = f"ss:{event.user_id}"
-    remaining = _check_cooldown(cooldown_key)
-    if remaining:
-        await ss_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+    if await _guard_cooldown(cooldown_key, ss_cmd):
+        return
 
     kind, value = await _resolve_image(bot, event)
     if kind is None:

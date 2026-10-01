@@ -10,7 +10,7 @@ from jmcomic import jm_log
 from jmcomic.jm_exception import RequestRetryAllFailException
 
 from jm_option import get_option as _get_option
-from plugins.jm.common import _check_cooldown, _clear_cooldown
+from plugins.jm.common import _guard_cooldown, _clear_cooldown
 
 __plugin_name__ = "jm_comment"
 __plugin_usage__ = "/jmc <ID> [页码] — 查看本子评论"
@@ -68,9 +68,8 @@ async def handle_jmc(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     page = max(int(m2.group()), 1) if m2 else 1
 
     cooldown_key = f"{event.user_id}:jmc:{album_id}:{page}"
-    remaining = _check_cooldown(cooldown_key)
-    if remaining:
-        await jmc_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+    if await _guard_cooldown(cooldown_key, jmc_cmd):
+        return
 
     try:
         option = _get_option()

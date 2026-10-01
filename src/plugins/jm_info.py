@@ -15,7 +15,7 @@ from jmcomic import jm_log, JmcomicText
 from jmcomic.jm_exception import MissingAlbumPhotoException, RequestRetryAllFailException
 
 from jm_option import get_option as _get_option
-from plugins.jm.common import _check_cooldown, _clear_cooldown
+from plugins.jm.common import _guard_cooldown, _clear_cooldown
 
 __plugin_name__ = "jm_info"
 __plugin_usage__ = "/jmv <ID> — 查看本子详情\n/jms <关键字> — 搜索本子"
@@ -68,9 +68,8 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
 
     album_id = match.group()
     cooldown_key = f"{event.user_id}:jmv:{album_id}"
-    remaining = _check_cooldown(cooldown_key)
-    if remaining:
-        await jmv_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+    if await _guard_cooldown(cooldown_key, jmv_cmd):
+        return
     await jmv_cmd.send(f"🔍 正在查询 JM{album_id} 详情……")
 
     cover_path = None
@@ -172,9 +171,8 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
         await jms_cmd.finish("格式: /jms <关键词>\n例如: /jms 无修正")
 
     cooldown_key = f"{event.user_id}:jms:{text}"
-    remaining = _check_cooldown(cooldown_key)
-    if remaining:
-        await jms_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+    if await _guard_cooldown(cooldown_key, jms_cmd):
+        return
 
     await jms_cmd.send(f"🔍 正在搜索「{text}」……")
 

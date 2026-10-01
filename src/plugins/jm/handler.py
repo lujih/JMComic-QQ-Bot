@@ -11,7 +11,7 @@ from plugins.jm.cmd import jm_cmd
 
 from plugins.jm.common import (
     _parse_format_flags,
-    _check_cooldown,
+    _guard_cooldown,
     _clear_cooldown,
     _is_dup_message,
     _DEFAULT_FMT,
@@ -63,9 +63,8 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             await jm_cmd.finish("格式: /jm p<章节ID>\n例如: /jm p350234")
         photo_id = text[1:]
         cooldown_key = f"{event.user_id}:p{photo_id}"
-        remaining = _check_cooldown(cooldown_key)
-        if remaining:
-            await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+        if await _guard_cooldown(cooldown_key, jm_cmd):
+            return
         await _download_photo(bot, event, photo_id, cooldown_key)
         return
 
@@ -74,18 +73,16 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
 
     album_id = text
     cooldown_key = f"{event.user_id}:{album_id}"
-    remaining = _check_cooldown(cooldown_key)
-    if remaining:
-        await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+    if await _guard_cooldown(cooldown_key, jm_cmd):
+        return
     await _download_album(bot, event, album_id, cooldown_key, fmt)
 
 
 async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
     time_param = {"周": "week", "月": "month", "日": "day"}.get(period, "week")
     cooldown_key = f"{event.user_id}:rank:{time_param}"
-    remaining = _check_cooldown(cooldown_key)
-    if remaining:
-        await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+    if await _guard_cooldown(cooldown_key, jm_cmd):
+        return
 
     try:
         option = _get_option()
@@ -114,9 +111,8 @@ async def _handle_rank(bot: Bot, event: GroupMessageEvent, period: str):
 
 async def _handle_random(bot: Bot, event: GroupMessageEvent):
     cooldown_key = f"{event.user_id}:random"
-    remaining = _check_cooldown(cooldown_key)
-    if remaining:
-        await jm_cmd.finish(f"操作太频繁，请 {remaining} 秒后再试")
+    if await _guard_cooldown(cooldown_key, jm_cmd):
+        return
 
     try:
         option = _get_option()
