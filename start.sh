@@ -30,13 +30,20 @@ if [ -z "$WEBUI_TOKEN" ]; then
 fi
 
 # 1. Write NapCat WebUI config — port 7860 for HF Spaces
+# autoLoginAccount 是 NapCat ≥4.18.15 的原生自动登录配置项（commit 31c45bf）。
+# 上游 resolveAutoLoginAccount(env ACCOUNT, 配置项, lastLoginAccount) 取第一个非空，
+# 所以写它等价于把 ACCOUNT 变量透传给 WebUI 后端；留空则回退到 NapCat 自己记住的
+# lastLoginAccount（它会在扫码登录成功后自行写入本文件）。
+# 注意：本文件每次启动都会被覆写，lastLoginAccount 因此在跨容器场景下必然为空——
+# 要免扫码必须靠 ACCOUNT 变量。
 echo "[start] Writing NapCat WebUI config (port 7860)..."
 cat > "$NAPCAT_CONFIG/webui.json" << EOF
 {
     "host": "0.0.0.0",
     "port": 7860,
     "token": "${WEBUI_TOKEN}",
-    "loginRate": 3
+    "loginRate": 3,
+    "autoLoginAccount": "${ACCOUNT:-}"
 }
 EOF
 # 打印一次；HF Space 日志仅所有者可见，扫码登录时需要它

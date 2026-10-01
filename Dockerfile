@@ -1,4 +1,4 @@
-FROM mlikiowa/napcat-docker:v4.18.7
+FROM mlikiowa/napcat-docker:v4.18.28
 
 # 一次性装齐：python/ffmpeg/git/tzdata + playwright chromium 系统依赖（来自 install-deps --dry-run），
 # 避免构建时跑两次 apt（第二次 install-deps 会重复下载 ubuntu 源，HF 构建器访问该源极慢 ~530KB/s）

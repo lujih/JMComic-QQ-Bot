@@ -78,7 +78,7 @@ git push
 | `ONEBOT_ACCESS_TOKEN` | NapCat ↔ NoneBot WS 认证 Token | 留空（不启用认证） |
 | `TARGET_GROUPS` | 每日推荐推送的目标群号 | 留空（不推送） |
 | `WEBUI_TOKEN` | NapCat WebUI 管理密码 | **启动时随机生成 24 位**，见启动日志 |
-| `ACCOUNT` | 指定 QQ 账号（可选） | 留空 |
+| `ACCOUNT` | **强烈建议配置**：QQ 账号号。NapCat ≥4.18.15 会用它自动登录（免扫码） | 留空（则每次重启都要重扫） |
 | `SPACE_URL` | 防休眠自 ping 的 Space URL（可选，默认由 HF `SPACE_HOST` 推导） | 自动推导 |
 
 > 环境变量请通过 **HF Settings → Variables** 配置（Docker 构建上下文会排除 `.env`，README 中随代码推送的方式不可用）。
@@ -99,9 +99,9 @@ git push
 4. 登录后在左侧 **网络配置** 确认 `bot`（WS 客户端）状态为 ✅ **已连接**
 5. 已连接即表示机器人就绪
 
-> ⚠️ **容器每次重启都要重新扫码。** HF Spaces 磁盘是临时的，QQ 登录态不会跨重启保留。
+> 💡 **配了 `ACCOUNT` 变量后，重启可能不用再扫码。** NapCat v4.18.15+ 原生支持自动登录（commit `31c45bf`），会读取 `webui.json` 的 `autoLoginAccount` 走快登恢复；本项目已把 `ACCOUNT` 透传进去。首次仍需扫码一次，成功后 NapCat 会记住登录态。
 >
-> 本项目曾实现过「快照持久化 + 自动快登」来免掉这一步，实测未能走通（NTQQ 对恢复出来的会话判定为已失效），已于 2026-10-01 整块移除，详见 [AGENTS.md](AGENTS.md) 的记录。**请不要为此挂载 bucket 做会话持久化**——那套逻辑还会持续把失效会话当成有效数据覆盖掉。
+> ⚠️ 若重启后仍要扫码，这是正常回退——腾讯风控会让会话过期，不是本项目的 bug。本项目曾自建「快照持久化」来实现免扫码，实测走不通（NTQQ 判定恢复出来的会话已失效），已于 2026-10-01 整块移除，详见 [AGENTS.md](AGENTS.md)。
 >
 > 目前挂载 bucket（到 `/data`）的唯一用途是**持久化 WebUI token**，避免每次重启都要去翻日志找密码。
 

@@ -57,7 +57,10 @@ pip install -e path/to/JMComic-Crawler-Python
 - 单文件插件（jm_info/jm_comment/jm_scheduler/jm_sauce）内的 `from plugins.jm.common import ...` 依赖加载顺序，勿改
 
 ### Dockerfile / start.sh
-- 基镜像 `mlikiowa/napcat-docker` 有 `ENTRYPOINT ["bash", "entrypoint.sh"]`，必须用 `ENTRYPOINT []` 清掉；镜像固定 `:v4.18.7`，勿改回 `:latest`（上游漂移会破坏构建）
+- 基镜像 `mlikiowa/napcat-docker` 有 `ENTRYPOINT ["bash", "entrypoint.sh"]`，必须用 `ENTRYPOINT []` 清掉。**当前钉 `v4.18.28`（2026-09-14）**，用具体 tag 不要用 `latest`（上游漂移会破坏构建）
+- **升版检查清单**：先看 https://github.com/NapNeko/NapCatQQ/releases 的「更新」段落，重点关注 ①`UploadGroupFile`/`UploadPrivateFile` 相关变更（`/jm` 的群文件上传走它，4.18.26 刚给 `upload_file` 加了参数）②WebUI 修复（4.18.19 修了白屏）③QQ 版本要求（4.18.19+ 推荐 QQ 9.9.32-55200+，基镜像自带的 QQ 偏旧）。升完必须重跑「扫码登录 + `/jm <id> --zip`」两条
+- `NapCat ≥4.18.8` 起 **WebUI 默认密钥改为随机密码**（控制台查看）；本项目 `start.sh` 写 `webui.json` 的 `token` 字段仍可覆盖，已实测
+- `NapCat ≥4.18.15` 起**原生支持自动登录**（commit 31c45bf）：`webui.json` 的 `autoLoginAccount`，取值优先级 `resolveAutoLoginAccount(环境变量 ACCOUNT, autoLoginAccount, lastLoginAccount)` 取第一个非空。`start.sh` 已把 `ACCOUNT` 透传进 `autoLoginAccount`；但 `webui.json` 每次启动被覆写，`lastLoginAccount` 在跨容器场景下必然为空，**要免扫码只能靠 `ACCOUNT` 变量**
 - `NapCat.Shell.zip` 在 Dockerfile 构建时已解压到 `/app/napcat/`，`start.sh` 仅在 `napcat.mjs` 缺失时兜底解压
 - Docker 中实际运行的 jmcomic 不是 `requirements.txt` 的版本：`pip install --force-reinstall --no-deps "jmcomic @ git+...@5a3f627"`（钉 commit，获取 P0 修复且保证可复现；升级 jmcomic 须改 commit 并跑上游 tests）
 - StealthyFetcher 需 Chromium：`ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright` 后 `pip install "playwright==1.61.0" "patchright==1.61.2" && python -m playwright install chromium && python -m patchright install chromium`（两个 install 都跑：patchright 与 playwright 的 chromium revision 可能不同，共用路径同 revision 幂等；路径必须与运行期一致——gosu napcat 的 HOME=/app，构建期默认 HOME=/root 会错位导致浏览器找不到）
@@ -164,28 +167,33 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### 部署
 - 首次部署需通过 NapCat WebUI 扫码登录 QQ 小号
-- **HF Spaces 容器每次重启都要重新扫码**（磁盘是临时的）。这是当前明确接受的行为，不要再尝试做自动登录，理由见下节
+- **HF Spaces 容器每次重启都要重新扫码**（磁盘是临时的）。本项目不再自建会话持久化，理由见下节
+- **但可以试 NapCat 原生自动登录**：升到 v4.18.28 后，`ACCOUNT` 变量会被透传进 `webui.json` 的 `autoLoginAccount`，由 NapCat 自己做快登恢复。这是上游能力，不需本项目代码；若实测有效，只需保证 HF Variables 里的 `ACCOUNT` 配好
 - 端口中：7860（HF Spaces 默认 → WebUI）、8080（内部 NoneBot WS 服务器）
 - 防休眠：双保险 — GitHub Actions（`.github/workflows/keepalive.yml`，每 24h 一次，推 GitHub main 生效）+ bot 内 `space_keepalive` job（每 24h，`SPACE_URL` 环境变量可覆盖默认 URL）；HF 休眠窗口 48h，两者互备，任一失效 48h 后会休眠
 - 休眠后首次 ping 需冷启动（1-2 分钟），keepalive curl 已带 `--retry 3 --retry-delay 20` 兜底
 - Space Settings 仍建议挂私有 bucket 到 `/data`——**仅用于持久化 WebUI token**（见 Dockerfile/start.sh 节），QQ 会话不再存进去
 
-### ~~QQ 会话持久化~~ 已放弃（2026-10-01）
-曾实现 `scripts/session_keeper.py` 做「启动时从桶里恢复会话 + 每 10min 备份 + 掉线自动快登」，**已整块删除**。不要重新做，除非有新的证据支撑。
+### ~~QQ 会话持久化~~ 自建方案已放弃（2026-10-01）
+曾实现 `scripts/session_keeper.py` 做「启动时从桶里恢复会话 + 每 10min 备份 + 掉线自动快登」，**已整块删除**。
 
-失败过程（避免后人重走一遍）：
+**重要**：升到 NapCat v4.18.28 后，**不要重新实现**——上游从 v4.18.15 起已原生支持自动登录
+（commit 31c45bf，`webui.json` 的 `autoLoginAccount` + `resolveAutoLoginAccount`），本项目手写的那套
+是在重复造轮子。要免扫码应当**配好 `ACCOUNT` 变量交给 NapCat**，而不是自己搬会话文件。
+
+自建方案失败过程（避免后人重走一遍）：
 1. **恢复逻辑一直是坏的，且静默**：`/app/.config/QQ` 是 mount point，rename 撞 `EBUSY(16)`；换成逐项 rename 后 `QQ/NapCat` 这个嵌套挂载又撞 `EXDEV(18)` 跨设备链接。而 `start.sh` 用 `|| true` 调 restore，异常被吞——容器照常 running、NoneBot 照常启动，**唯一症状是每次重启都得重扫**。这个 bug 从 `63d405f` 引入起就存在，直到 2026-09-30 才在真实容器暴露（多子代理静态审查没有容器环境，查不出只在真实挂载布局下才触发的路径）
 2. 修好搬运（统一走 `shutil.move`）后，快照确实能换入、日志打出「已从快照恢复」，但 **NTQQ 仍判定「登录态已失效，请重新登录」**——文件到位了，服务端不认
 3. 最致命的是 `has_login_data()` 只判 `nt_qq_<hash>/` 目录是否存在。恢复进来的目录必然存在，于是 backup 循环会把**已失效的会话**当有效数据继续打包，覆盖掉仅存的那份好快照
 4. 即便修好 3，快照也只对「刚备份完就重启」这个窗口有效；放几小时就失效，等于没有
 
 教训：
+- **先查上游有没有现成能力**。这套东西从零写到删掉，中间没查过一次 NapCat 的 release notes
 - **静默失败比功能缺失更危险**。当时若 restore 失败时让容器起不来，一眼就能发现
 - 「备份」类功能必须校验**有效性**而非**存在性**，否则会持续覆盖掉好数据
 - 这类只在特定运行时环境（挂载布局、远端服务行为）才触发的逻辑，纯静态审查不可靠，必须实机验证
 
-保留的两点相关知识：
-- NapCat WebUI API 鉴权链路（v4.18.7）：token 不能直传；`hash = sha256_hex(token + ".napcat")` → `POST /api/auth/login {"hash"}` 换 1h 有效 Credential → `Authorization: Bearer <Credential>`；`/auth/login` 有 60s 窗口 3 次限速
+仍然有用的一点：
 - `start.sh` 的 `sync_onebot11_config` 仍按旧布局扫 `<uin>/nt_qq.db`，永不命中——单账号下默认 `onebot11.json` 已足够（token 在写入通用配置时注入），多账号场景才需重写该函数
 
 ## 命令
