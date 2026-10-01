@@ -41,6 +41,24 @@ async def handle_jm(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
     if text == "help":
         await jm_cmd.finish(HELP_TEXT)
 
+    # v/s/c 子命令转发到 /jmv /jms /jmc 的同一套实现。
+    # 必须惰性 import：bot.py 里 jm 先于 jm_info/jm_comment 加载，顶层 import 会 ImportError。
+    # 严格匹配「单字母 + 空白或结尾」：/jm v 123 走详情，但 /jm video123 是非法 ID，不能误判。
+    m_sub = re.match(r'^([vsc])(?:\s+(.*))?$', text, re.DOTALL)
+    if m_sub:
+        sub, rest = m_sub.group(1), (m_sub.group(2) or "").strip()
+        if sub == "v":
+            from plugins.jm_info import _do_jmv
+            await _do_jmv(jm_cmd, event, rest)
+            return
+        if sub == "s":
+            from plugins.jm_info import _do_jms
+            await _do_jms(jm_cmd, event, rest)
+            return
+        from plugins.jm_comment import _do_jmc
+        await _do_jmc(jm_cmd, event, rest)
+        return
+
     match = re.match(r'^rank\s*(\S*)$', text)
     if match:
         period = match.group(1).strip()

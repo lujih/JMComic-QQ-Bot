@@ -18,9 +18,10 @@ from jm_option import get_option as _get_option
 from plugins.jm.common import _guard_cooldown, _clear_cooldown
 
 __plugin_name__ = "jm_info"
-__plugin_usage__ = "/jmv <ID> — 查看本子详情\n/jms <关键字> — 搜索本子"
+__plugin_usage__ = "/jm v <ID> — 查看本子详情\n/jm s <关键词> — 搜索本子"
 
-
+# 旧入口保留兼容（老习惯打的 /jmv /jms 仍可用）；新入口是 /jm v /jm s。
+# 两个入口共用下面同一套 _do_jmv / _do_jms，不存在两份实现。
 jmv_cmd = on_command("jmv", priority=10, rule=is_type(GroupMessageEvent))
 jms_cmd = on_command("jms", priority=10, rule=is_type(GroupMessageEvent))
 
@@ -59,18 +60,18 @@ async def _fetch_cover(cl, album_id: str) -> str | None:
         return None
 
 
-@jmv_cmd.handle()
-async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
-    text = msg.extract_plain_text().strip()
+async def _do_jmv(cmd, event: GroupMessageEvent, text: str):
+    """/jm v 与 /jmv 的共同实现。cmd 是输出通道（各自的 matcher）。"""
+    text = text.strip()
     match = re.search(r"\d+", text)
     if not match:
-        await jmv_cmd.finish("格式: /jmv <本子ID>\n例如: /jmv 438516")
+        await cmd.finish("格式: /jm v <本子ID>\n例如: /jm v 438516")
 
     album_id = match.group()
     cooldown_key = f"{event.user_id}:jmv:{album_id}"
-    if await _guard_cooldown(cooldown_key, jmv_cmd):
+    if await _guard_cooldown(cooldown_key, cmd):
         return
-    await jmv_cmd.send(f"🔍 正在查询 JM{album_id} 详情……")
+    await cmd.send(f"🔍 正在查询 JM{album_id} 详情……")
 
     cover_path = None
     try:
@@ -81,23 +82,23 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     except asyncio.TimeoutError:
         _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'查询详情超时: {album_id}')
-        await jmv_cmd.finish("❌ 查询超时，请稍后再试")
+        await cmd.finish("❌ 查询超时，请稍后再试")
     except MissingAlbumPhotoException:
         _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'本子不存在: {album_id}')
-        await jmv_cmd.finish("❌ 本子不存在，请检查 ID")
+        await cmd.finish("❌ 本子不存在，请检查 ID")
     except RequestRetryAllFailException as e:
         _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'查询详情失败: API 不可达 ({album_id})', e)
-        await jmv_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
+        await cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)
         jm_log('jm.info', '查询详情失败', e)
-        await jmv_cmd.finish("❌ 查询失败")
+        await cmd.finish("❌ 查询失败")
 
     if cover_path:
         try:
-            await jmv_cmd.send(Message(f"[CQ:image,file={Path(cover_path).as_uri()}]"))
+            await cmd.send(Message(f"[CQ:image,file={Path(cover_path).as_uri()}]"))
         except Exception as e:
             jm_log('jm.info', f'封面发送失败: {album_id}', e)
             try:
@@ -161,20 +162,25 @@ async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
             rname = rname if len(rname) <= 30 else rname[:27] + "…"
             lines.append(f"JM{rid}  {rname}")
 
-    await jmv_cmd.finish("\n".join(lines))
+    await cmd.finish("\n".join(lines))
 
 
-@jms_cmd.handle()
-async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
-    text = msg.extract_plain_text().strip()
+@jmv_cmd.handle()
+async def handle_jmv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
+    await _do_jmv(jmv_cmd, event, msg.extract_plain_text())
+
+
+async def _do_jms(cmd, event: GroupMessageEvent, text: str):
+    """/jm s 与 /jms 的共同实现。"""
+    text = text.strip()
     if not text:
-        await jms_cmd.finish("格式: /jms <关键词>\n例如: /jms 无修正")
+        await cmd.finish("格式: /jm s <关键词>\n例如: /jm s 无修正")
 
     cooldown_key = f"{event.user_id}:jms:{text}"
-    if await _guard_cooldown(cooldown_key, jms_cmd):
+    if await _guard_cooldown(cooldown_key, cmd):
         return
 
-    await jms_cmd.send(f"🔍 正在搜索「{text}」……")
+    await cmd.send(f"🔍 正在搜索「{text}」……")
 
     try:
         option = _get_option()
@@ -183,19 +189,19 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     except asyncio.TimeoutError:
         _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'搜索超时: {text}')
-        await jms_cmd.finish("❌ 搜索超时，请稍后再试")
+        await cmd.finish("❌ 搜索超时，请稍后再试")
     except RequestRetryAllFailException as e:
         _clear_cooldown(cooldown_key)
         jm_log('jm.info', f'搜索失败: API 不可达 ({text})', e)
-        await jms_cmd.finish("❌ 搜索失败，API 暂时不可达，请稍后再试")
+        await cmd.finish("❌ 搜索失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)
         jm_log('jm.info', '搜索失败', e)
-        await jms_cmd.finish("❌ 搜索失败")
+        await cmd.finish("❌ 搜索失败")
 
     results = list(itertools.islice(page, 10))
     if not results:
-        await jms_cmd.finish("❌ 未找到相关结果")
+        await cmd.finish("❌ 未找到相关结果")
 
     total = getattr(page, 'total', len(results))
     lines = [f"🔍 「{text}」搜索结果 (共{total}条):", ""]
@@ -206,4 +212,9 @@ async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     if total > len(results):
         lines.append(f"\n... 还有 {total - len(results)} 条未显示")
 
-    await jms_cmd.finish("\n".join(lines))
+    await cmd.finish("\n".join(lines))
+
+
+@jms_cmd.handle()
+async def handle_jms(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
+    await _do_jms(jms_cmd, event, msg.extract_plain_text())

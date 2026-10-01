@@ -13,8 +13,9 @@ from jm_option import get_option as _get_option
 from plugins.jm.common import _guard_cooldown, _clear_cooldown
 
 __plugin_name__ = "jm_comment"
-__plugin_usage__ = "/jmc <ID> [页码] — 查看本子评论"
+__plugin_usage__ = "/jm c <ID> [页码] — 查看本子评论"
 
+# 旧入口 /jmc 保留兼容；新入口是 /jm c。两者共用同一套 _do_jmc 逻辑。
 jmc_cmd = on_command("jmc", priority=10, rule=is_type(GroupMessageEvent))
 
 _MAX_MAIN_COMMENTS = 8
@@ -55,12 +56,12 @@ def _comment_lines(comment) -> list[str]:
     return lines
 
 
-@jmc_cmd.handle()
-async def handle_jmc(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
-    text = msg.extract_plain_text().strip()
+async def _do_jmc(cmd, event: GroupMessageEvent, text: str):
+    """/jm c 与 /jmc 的共同实现。"""
+    text = text.strip()
     m = re.search(r"(\d+)", text)
     if not m:
-        await jmc_cmd.finish("格式: /jmc <本子ID> [页码]\n例如: /jmc 438516\n      /jmc 438516 2")
+        await cmd.finish("格式: /jm c <本子ID> [页码]\n例如: /jm c 438516\n      /jm c 438516 2")
 
     album_id = m.group()
     rest = text[m.end():].strip()
@@ -68,7 +69,7 @@ async def handle_jmc(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     page = max(int(m2.group()), 1) if m2 else 1
 
     cooldown_key = f"{event.user_id}:jmc:{album_id}:{page}"
-    if await _guard_cooldown(cooldown_key, jmc_cmd):
+    if await _guard_cooldown(cooldown_key, cmd):
         return
 
     try:
@@ -80,19 +81,19 @@ async def handle_jmc(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     except asyncio.TimeoutError:
         _clear_cooldown(cooldown_key)
         jm_log('jm.comment', f'获取评论超时: {album_id} p{page}')
-        await jmc_cmd.finish("❌ 查询超时，请稍后再试")
+        await cmd.finish("❌ 查询超时，请稍后再试")
     except RequestRetryAllFailException as e:
         _clear_cooldown(cooldown_key)
         jm_log('jm.comment', f'获取评论失败: API 不可达 ({album_id})', e)
-        await jmc_cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
+        await cmd.finish("❌ 查询失败，API 暂时不可达，请稍后再试")
     except Exception as e:
         _clear_cooldown(cooldown_key)
         jm_log('jm.comment', f'获取评论失败: {album_id}', e)
-        await jmc_cmd.finish("❌ 查询失败")
+        await cmd.finish("❌ 查询失败")
 
     comments = list(page_data)[:_MAX_MAIN_COMMENTS]
     if not comments:
-        await jmc_cmd.finish("❌ 暂无评论")
+        await cmd.finish("❌ 暂无评论")
 
     total = page_data.total or 0
     page_count = page_data.page_count or 1
@@ -104,11 +105,16 @@ async def handle_jmc(bot: Bot, event: GroupMessageEvent, msg: Message = CommandA
     if page_count > 1:
         nav = []
         if page > 1:
-            nav.append(f"/jmc {album_id} {page - 1} ←")
+            nav.append(f"/jm c {album_id} {page - 1} ←")
         if page < page_count:
-            nav.append(f"/jmc {album_id} {page + 1} →")
+            nav.append(f"/jm c {album_id} {page + 1} →")
         if nav:
             lines.append("——")
             lines.append("  ".join(nav))
 
-    await jmc_cmd.finish("\n".join(lines))
+    await cmd.finish("\n".join(lines))
+
+
+@jmc_cmd.handle()
+async def handle_jmc(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
+    await _do_jmc(jmc_cmd, event, msg.extract_plain_text())

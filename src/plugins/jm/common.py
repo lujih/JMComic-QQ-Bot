@@ -134,19 +134,20 @@ def _make_out_path(id_str: str, ext: str) -> Path:
 
 HELP_TEXT = (
     "📖 JMComic QQ Bot 命令列表\n\n"
-    "/jm <本子ID>            下载本子（默认 PDF）\n"
-    "/jm <本子ID> --zip      下载并打包为 ZIP\n"
-    "/jm <本子ID> --longimg  下载并拼接为长图\n"
-    "/jm p<章节ID>           下载单个章节\n"
-    "/jm rank [周/月/日]     查看排行榜（默认周榜）\n"
-    "/jm random             随机推荐一本\n"
-    "/jm help               显示本帮助\n"
-    "/jmv <ID>               查看本子详情\n"
-    "/jms <关键词>           搜索本子\n"
-    "/jmc <ID> [页码]        查看本子评论\n"
-    "/mv <番号>              搜索番号并返回磁力链接\n"
-    "/ss 图/回复图/裸发      以图搜源（裸发自动用本群最近一张图）\n"
-    "每日早 9:00             自动推送随机推荐到群"
+    "/jm <ID>              下载本子（默认 PDF）\n"
+    "/jm <ID> --zip        下载并打包为 ZIP\n"
+    "/jm <ID> --longimg    下载并拼接为长图\n"
+    "/jm p<章节ID>         下载单个章节\n"
+    "/jm v <ID>            查看本子详情\n"
+    "/jm s <关键词>        搜索本子\n"
+    "/jm c <ID> [页码]     查看本子评论\n"
+    "/jm rank [周/月/日]   查看排行榜（默认周榜）\n"
+    "/jm random           随机推荐一本\n"
+    "/jm help             显示本帮助\n\n"
+    "/mv <番号>            搜索番号并返回磁力链接\n"
+    "/ss 图/回复图/裸发    以图搜源（裸发自动用本群最近一张图）\n\n"
+    "每日早 9:00           自动推送随机推荐到群\n\n"
+    "兼容旧命令：/jmv /jms /jmc 仍可使用"
 )
 
 

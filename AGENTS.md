@@ -6,12 +6,11 @@
 NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcomic (下载引擎)
      │                              │
      └── WebUI (7860)               ├── /jm      → ProgressJmDownloader → Feature.export_pdf/zip/long_img
+                                     ├── /jm v|s|c → _do_jmv/_do_jms/_do_jmc（与旧 /jmv /jms /jmc 共用实现）
                                      ├── /jm help  → HELP_TEXT
                                      ├── /jm rank  → month/week/day_ranking
                                      ├── /jm random → month_ranking → random.choice
-                                     ├── /jmv      → get_album_detail
-                                      ├── /jms      → search_site
-                                       ├── /mv       → MissAV+JavDB+jav321 三源合并 + Sukebei 磁力链
+                                      ├── /mv       → MissAV+JavDB+jav321 三源合并 + Sukebei 磁力链
                                        ├── /ss       → 以图搜源（Ascii2d+SoutuBot+trace.moe+Yandex 四源并行 + JM 标题匹配）
                                        └── 每日 9:00  → APScheduler → month_ranking → 群推送
 ```
@@ -27,7 +26,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `config/onebot11.json` | NapCat WS 客户端 → `ws://127.0.0.1:8080/onebot/v11/ws` |
 | `src/plugins/jm/` | `/jm` 命令包 — `cmd.py`(on_command 注册), `handler.py`(路由), `album.py`(本子下载), `photo.py`(单章), `upload.py`(二级上传fallback), `progress.py`(取消信号下载器), `compress.py`(zip 源图压缩 Feature), `common.py`(公共工具+锁/冷却/缓存) |
 | `src/plugins/mv/` | `/mv` 命令包 — `cmd.py`(on_command 注册), `handler.py`(路由+磁链聚合), `_search.py`(三源并行 coordinator), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
-| `src/plugins/jm_info.py` | `/jmv` 详情（封面图+相关推荐） + `/jms` 搜索 |
+| `src/plugins/jm_info.py` | `/jm v` 详情（封面图+相关推荐） + `/jm s` 搜索，核心逻辑在 `_do_jmv`/`_do_jms`；旧入口 `/jmv` `/jms` 为薄壳 |
 | `src/plugins/jm_comment.py` | `/jmc` 评论（`album_pagination`，需 jmcomic ≥2.7.3） |
 | `src/plugins/jm_sauce.py` | `/ss` 以图搜源 — Ascii2d/SoutuBot/trace.moe/Yandex 四源并行 + JM 标题自动匹配 |
 | `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`）+ 每 5 分钟缓存清理 + 每 24 小时 Space 自 ping 防休眠 |
@@ -204,12 +203,12 @@ pip install -e path/to/JMComic-Crawler-Python
 | `/jm <ID> --zip` | 下载本子并打包 ZIP | `/jm 438516 --zip` |
 | `/jm <ID> --longimg` | 下载本子并拼接长图 | `/jm 438516 --longimg` |
 | `/jm p<ID>` | 下载单个章节（仅 PDF） | `/jm p350234` |
+| `/jm v <ID>` | 查看本子详情（旧 `/jmv` 兼容） | `/jm v 438516` |
+| `/jm s <关键词>` | 搜索本子（旧 `/jms` 兼容） | `/jm s 无修正` |
+| `/jm c <ID> [页码]` | 查看本子评论（旧 `/jmc` 兼容） | `/jm c 438516 2` |
 | `/jm rank [周/月/日]` | 排行榜（默认周榜） | `/jm rank 月` |
 | `/jm random` | 随机推荐一本 | `/jm random` |
 | `/jm help` | 查看全部命令 | `/jm help` |
-| `/jmv <ID>` | 查看本子详情 | `/jmv 438516` |
-| `/jms <关键词>` | 搜索本子 | `/jms 无修正` |
-| `/jmc <ID> [页码]` | 查看本子评论 | `/jmc 438516 2` |
 | `/mv <番号>` | 搜索番号（三源并行: MissAV+JavDB+jav321 + Sukebei 磁力链）返回磁力链接 | `/mv SSNI-123` |
 | `/mv <番号> --page N` | 翻页 | `/mv SSNI-123 --page 2` |
 | `/ss` +图片/回复图片 | 以图搜源（本子/动画/通用真人） | 附图发 `/ss`、回复图片消息发 `/ss`，或发图后 2 分钟内裸发 `/ss`（自动取本群最近一张） |
@@ -237,6 +236,9 @@ pip install -e path/to/JMComic-Crawler-Python
 - 命令注册与路由分离：`cmd.py` 定义 `on_command`（`priority=10`, `rule=is_type(GroupMessageEvent)`），`handler.py` 处理逻辑，`__init__.py` 里 `from . import handler` 完成装载；`bot.py` 用 `nonebot.load_plugin(f"plugins.{name}")` 循环加载（勿用 `load_plugins("src/plugins")`，见双命名空间坑）
 - 所有群命令只响应 `GroupMessageEvent`（`is_type` 规则）
 - `jm_info.py` / `jm_comment.py` / `jm_scheduler.py` / `jm_sauce.py` 是单文件插件，直接在文件内 `on_command` / `scheduler.scheduled_job`，无 cmd.py
+- **一个命令只写一份逻辑**：`jm_info.py` 的核心是 `_do_jmv(cmd, event, text)` / `_do_jms(cmd, event, text)`，`jm_comment.py` 是 `_do_jmc(cmd, event, text)`——`cmd` 是输出通道（各自的 matcher）。新入口 `/jm v|s|c`（`jm/handler.py` 里的 `m_sub` 分发）与旧入口 `/jmv` `/jms` `/jmc` 都调同一个 `_do_*`，handler 只是薄壳。**改逻辑只改 `_do_*`，不要在薄壳里加分支；也不要因为"旧命令没人用了"删掉薄壳**，那是兼容性保障
+- `/jm` 子命令分发用严格正则 `^([vsc])(?:\s+(.*))?$`——**不能写成 `text[0] in "vsc"`**，否则 `/jm video123`、`/jm scratch` 会被误判成子命令而不是非法 ID
+- `jm/handler.py` 里 import `jm_info` / `jm_comment` **必须在函数体内惰性 import**：bot.py 的加载顺序是 `jm` 在前，顶层 import 会 ImportError
 - **冷却检查一律用 `await _guard_cooldown(key, cmd)`**（`jm/common.py`），它内部调 `_check_cooldown` 并在命中时 `cmd.finish()` 后返回 True，调用方写 `if await _guard_cooldown(...): return`。不要再手写「`remaining = _check_cooldown(...)` + `if remaining: finish(...)`」三行样板——2026-10-01 前这套样板在 5 个文件里重复了 8 份，提示文案一改就要改 8 处
 - **同步阻塞调用一律不放在 event loop 里**。本地文件读、jmcomic 同步 API、Scrapling/StealthyFetcher 都必须经 `loop.run_in_executor` 或 `run_sync`。历史教训：`/ss` 兜底读 NapCat 本地图片曾用裸 `open().read()`，数 MB 图片会把整条事件循环卡住
 - 无测试套件、无 linter/CI 配置；验证手段为 `python -m py_compile` + 本地 `python bot.py` 启动
