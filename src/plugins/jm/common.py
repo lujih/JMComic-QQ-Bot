@@ -239,10 +239,18 @@ async def _download_entity(
 ):
     out_path = _make_out_path(f"{cache_prefix}{entity_id}", ext)
 
-    usage = shutil.disk_usage(tempfile.gettempdir())
-    if usage.free < 500 * 1024 * 1024:
+    # disk_usage 是同步 syscall（statfs），移到线程池——它在每次下载请求的最前面执行，
+    # 放在 event loop 里会阻塞所有并发请求。拿不到磁盘信息时不阻断下载，
+    # 交给后续真实的下载/上传错误暴露。
+    loop = asyncio.get_running_loop()
+    try:
+        usage = await loop.run_in_executor(None, shutil.disk_usage, tempfile.gettempdir())
+        free_mb = usage.free // (1024 * 1024)
+    except OSError:
+        free_mb = None
+    if free_mb is not None and free_mb < 500:
         _clear_cooldown(cooldown_key)
-        await jm_cmd.finish("❌ 服务器磁盘空间不足，请稍后再试")
+        await jm_cmd.finish(f"❌ 服务器磁盘空间不足（剩余 {free_mb}MB），请稍后再试")
 
     try:
         from jm_option import get_option as _get_option
