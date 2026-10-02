@@ -18,6 +18,10 @@ __plugin_name__ = "jm_scheduler"
 __plugin_usage__ = "每日早 9 点推送随机推荐 + 定时清理下载缓存"
 
 _health_fail_count = 0
+# 已发出首次告警；为 True 时后续只发「仍未连接」的低频提醒，不再重复首次告警
+_health_warned = False
+# 首次告警后，每隔多少轮（30min/轮）再提醒一次 = 12 轮 ≈ 6 小时
+_HEALTH_REMIND_EVERY = 12
 
 
 def _parse_target_groups() -> list[int]:
@@ -78,18 +82,36 @@ async def cleanup_stale_dirs():
 
 @scheduler.scheduled_job("interval", minutes=30, id="connection_health")
 async def connection_health():
-    """检测 WS 连接：NapCat 未连接 = QQ 掉线/未扫码登录，连续 1 小时无连接输出醒目告警"""
-    global _health_fail_count
+    """检测 WS 连接：NapCat 未连接 = QQ 掉线/未扫码登录。
+
+    告警**不是**每轮都打：未登录可能持续数小时（用户忘了扫码），每 30 分钟刷一条
+    只会把真正的错误淹在噪音里——实测未登录 22h 刷了 44 条。
+    改为：连续失败第 2 次（=满 1 小时）报首次，之后每 12 轮（=6 小时）提醒一次；
+    登录恢复时打一条确认，让人知道已解除。
+    """
+    global _health_fail_count, _health_warned
     try:
         get_bot()
-        _health_fail_count = 0
     except ValueError:
         _health_fail_count += 1
-        if _health_fail_count >= 2:
-            jm_log("jm.scheduler.health",
-                   "⚠️ 连续 1 小时未检测到 WS 连接（NapCat/QQ 可能掉线或未扫码登录），请打开 WebUI 重新扫码")
+        if _health_fail_count == 2 or _health_fail_count % _HEALTH_REMIND_EVERY == 0:
+            if _health_warned:
+                jm_log("jm.scheduler.health",
+                       f"⏳ 仍未检测到 WS 连接（已持续约 {_health_fail_count * 30 // 60} 小时），"
+                       f"请打开 WebUI 扫码")
+            else:
+                jm_log("jm.scheduler.health",
+                       "⚠️ 连续 1 小时未检测到 WS 连接（NapCat/QQ 可能掉线或未扫码登录），请打开 WebUI 重新扫码")
+                _health_warned = True
+        return
     except Exception as e:
         jm_log("jm.scheduler.health", f"连接检测异常: {e}")
+        return
+
+    if _health_fail_count >= 2:
+        jm_log("jm.scheduler.health", f"✅ WS 连接已恢复（曾中断约 {_health_fail_count * 30 // 60} 小时）")
+    _health_fail_count = 0
+    _health_warned = False
 
 
 @scheduler.scheduled_job("interval", hours=24, id="space_keepalive")
