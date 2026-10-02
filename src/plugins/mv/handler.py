@@ -66,6 +66,20 @@ async def _search_av_info(text: str, cooldown_key: str):
     return av_info
 
 
+async def _delayed_rm(path: str, delay: int = 30):
+    await asyncio.sleep(delay)
+    try:
+        os.remove(path)
+    except Exception:
+        pass
+
+
+def _write_file(path: str, data: bytes):
+    """同步写本地封面，供 loop.run_in_executor 调用（不可写成 async）。"""
+    with open(path, "wb") as f:
+        f.write(data)
+
+
 def _clean_magnet(magnet: str, short_id: str = "") -> str:
     """磁链清洗：去掉 &tr= tracker，dn= 替换为短番号（如 MDBK-331）"""
     parts = magnet.split('&')
@@ -116,13 +130,6 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
         cooldown_key = f"{event.user_id}:mv:{code}"
         av_info = await _search_av_info(text, cooldown_key)
 
-    async def _delayed_rm(path: str, delay: int = 30):
-        await asyncio.sleep(delay)
-        try:
-            os.remove(path)
-        except Exception:
-            pass
-
     cover_path = None
     if img_url := av_info.get('cover'):
         resp = None
@@ -138,20 +145,24 @@ async def handle_mv(bot: Bot, event: GroupMessageEvent, msg: Message = CommandAr
             safe = re.sub(r'\W', '_', text)
             import uuid
             cover_path = str(Path(tempfile.gettempdir()) / f"jm_mv_cover_{safe}_{uuid.uuid4().hex[:8]}.jpg")
-            with open(cover_path, "wb") as f:
-                f.write(resp.content)
+            # 写盘走线程池：封面可达数 MB，裸 f.write() 阻塞整个事件循环
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _write_file, cover_path, resp.content)
             await mv_cmd.send(Message(f"[CQ:image,file={Path(cover_path).as_uri()}]"))
             asyncio.create_task(_delayed_rm(cover_path))
         except Exception as e:
-            jm_log('jm.mv.cover', f'封面下载失败', e)
+            # 封面失败**不提示**：元信息才是主体内容，前面已经抓到 av_info。
+            # 发「❌ 封面下载失败」会让用户看到红色错误却仍收到完整信息，语义自相矛盾。
+            jm_log('jm.mv.cover', f'封面下载失败，跳过封面', e)
             if cover_path and os.path.exists(cover_path):
-                os.remove(cover_path)
-            await mv_cmd.send("❌ 封面下载失败")
+                try:
+                    os.remove(cover_path)
+                except OSError:
+                    pass
         finally:
             if resp is not None:
                 resp.close()
-    else:
-        await mv_cmd.send("❌ 无封面图")
+    # 源站本身没有封面时也不提示——元信息才是主体内容，无封面属正常情况
 
     # Message 2: 元信息
     meta_lines = []

@@ -34,6 +34,12 @@ async def _delayed_rm(path: str, delay: int = 30):
         pass
 
 
+def _write_file(path: str, data: bytes):
+    """同步写本地文件，供 loop.run_in_executor 调用（不可写成 async）。"""
+    with open(path, "wb") as f:
+        f.write(data)
+
+
 async def _fetch_cover(cl, album_id: str) -> str | None:
     """下载本子封面到临时文件，失败返回 None（静默降级为纯文本详情）。
 
@@ -48,8 +54,10 @@ async def _fetch_cover(cl, album_id: str) -> str | None:
                 img = await asyncio.wait_for(cl.get_jm_image(cover_url), timeout=30)
                 if img.http_code == 200 and img.content:
                     path = str(Path(tempfile.gettempdir()) / f"jm_cover_{album_id}_{uuid.uuid4().hex[:8]}.jpg")
-                    with open(path, "wb") as f:
-                        f.write(img.content)
+                    # 写盘走线程池：封面可达数 MB，裸 f.write() 会阻塞整个事件循环
+                    # （期间 /jm 下载、/ss 四源查询全部卡住）。与 jm_sauce._read_file 同理。
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(None, _write_file, path, img.content)
                     return path
             except Exception as e:
                 jm_log('jm.info', f'封面下载失败(域 {domain}): {album_id}', e)
