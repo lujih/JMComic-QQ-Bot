@@ -17,6 +17,7 @@ from jmcomic import jm_log
 
 from jm_option import get_option as _get_option
 from plugins.jm.common import _guard_cooldown, _clear_cooldown
+from plugins.sauce_engines import search_enhanced as _pic_search_enhanced
 
 __plugin_name__ = "jm_sauce"
 __plugin_usage__ = "/ss — 以图搜源（附图 / 回复含图消息 / 裸发自动用本群 2 分钟内最近一张图）"
@@ -195,6 +196,21 @@ async def _safe(source: str, coro) -> Any:
         return await coro
     except Exception as e:
         jm_log('jm.sauce', f'{source} 查询失败', e)
+        return []
+
+
+async def _search_enhanced(img_bytes: bytes, probe_url: str = "") -> list[dict]:
+    """PicImageSearch 增强源（SauceNAO/IQDB/E-Hentai），整体加 40s 超时。
+
+    这几个引擎各自要上传图片 + 等待匹配，串行下来可能到 60s+；
+    统一 40s 封顶，超时由 _safe 兜住返回 []。
+    """
+    try:
+        return await asyncio.wait_for(
+            _pic_search_enhanced(img_bytes, probe_url), timeout=40
+        )
+    except asyncio.TimeoutError:
+        jm_log('jm.sauce.pic', '增强源整体超时(40s)，跳过')
         return []
 
 
@@ -426,19 +442,39 @@ async def handle_ss(bot: Bot, event: GroupMessageEvent):
                 _clear_cooldown(cooldown_key)
                 jm_log('jm.sauce.fetch', '获取图片失败（链接可能已过期）', e)
                 await ss_cmd.finish("❌ 图片获取失败（链接可能已过期），请重新发送图片后重试")
-            a2d, soutu, tm, yx = await asyncio.gather(
+            a2d, soutu, tm, yx, enh = await asyncio.gather(
                 _safe("ascii2d", _search_ascii2d(client, img_bytes)),
                 _safe("soutubot", _search_soutubot(client, img_bytes)),
                 _safe("tracemoe", _search_tracemoe(client, img_bytes)),
                 _safe("yandex", _search_yandex(client, probe_url)),
+                _safe("enhanced", _search_enhanced(img_bytes, probe_url)),
             )
 
     jm_hit = None
+    # JM 标题匹配的候选来源：增强源自带标题且带相似度，优先用高置信度的那条
     match_title = (a2d[0][1]["title"] if a2d else "") or (soutu[0]["title"] if soutu else "")
+    if not match_title:
+        for it in enh:
+            if it.get("similarity") and it.get("title"):
+                match_title = it["title"]
+                break
     if match_title:
         jm_hit = await _safe("jm-match", _match_jm(match_title))
 
     lines = ["🔍 搜图结果"]
+    # 增强源排在最前：带 similarity 分数，是置信度最高的一批。
+    # 放末尾会被下面四源的结果淹没，而它们恰恰是最可能精确命中的
+    if enh:
+        lines += ["", "── 精确匹配 (SauceNAO / IQDB) ──"]
+        for it in enh:
+            sim = f" [{it['similarity']:.0f}%]" if it.get("similarity") is not None else ""
+            row = f"{it['engine']}{sim}  {it['title']}" if it["title"] else f"{it['engine']}{sim}"
+            if it.get("author"):
+                row += f" / {it['author']}"
+            lines.append(row)
+            if it["url"]:
+                lines.append(f"  ↳ {it['url']}")
+
     if a2d:
         lines += ["", "── Ascii2d ──"]
         for tag, it in a2d:
