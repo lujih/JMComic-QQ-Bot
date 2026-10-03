@@ -11,7 +11,7 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
                                      ├── /jm rank  → month/week/day_ranking
                                      ├── /jm random → month_ranking → random.choice
                                       ├── /mv       → MissAV+JavDB+jav321 三源合并 + Sukebei 磁力链
-                                       ├── /ss       → 以图搜源（Ascii2d+SoutuBot+trace.moe+Yandex 四源并行 + JM 标题匹配）
+                                       ├── /ss       → 以图搜源（Ascii2d+SoutuBot+trace.moe+Yandex 四源 + PicImageSearch 增强源 SauceNAO/IQDB/E-Hentai + JM 标题匹配）
                                        └── 每日 9:00  → APScheduler → month_ranking → 群推送
 ```
 
@@ -28,7 +28,8 @@ NapCatQQ (QQ协议层) ──WS──→ NoneBot2 (消息路由) ──→ jmcom
 | `src/plugins/mv/` | `/mv` 命令包 — `cmd.py`(on_command 注册), `handler.py`(路由+磁链聚合), `_search.py`(三源并行 coordinator), `_search_missav.py`(StealthyFetcher), `_search_javdb.py`(StealthyFetcher), `_torrent.py`(Sukebei磁力) |
 | `src/plugins/jm_info.py` | `/jm v` 详情（封面图+相关推荐） + `/jm s` 搜索，核心逻辑在 `_do_jmv`/`_do_jms`；旧入口 `/jmv` `/jms` 为薄壳 |
 | `src/plugins/jm_comment.py` | `/jmc` 评论（`album_pagination`，需 jmcomic ≥2.7.3） |
-| `src/plugins/jm_sauce.py` | `/ss` 以图搜源 — Ascii2d/SoutuBot/trace.moe/Yandex 四源并行 + JM 标题自动匹配 |
+| `src/plugins/jm_sauce.py` | `/ss` 以图搜源 — 原生四源（Ascii2d/SoutuBot/trace.moe/Yandex）+ 取图三级兜底 + 增强源接线 |
+| `src/plugins/sauce_engines.py` | `/ss` 增强源 — PicImageSearch 封装（SauceNAO/IQDB/E-Hentai），**惰性 import**，缺库返回 `[]` 不影响原生四源 |
 | `src/plugins/jm_scheduler.py` | 每日 9:00 随机推荐（APScheduler + `TARGET_GROUPS`）+ 每 5 分钟缓存清理 + 每 24 小时 Space 自 ping 防休眠 |
 | `.github/workflows/keepalive.yml` | GitHub Actions 每 24 小时 ping HF Space URL 防休眠（与 bot 内自 ping 双保险） |
 | `src/jm_option.py` | jmcomic option 双检锁缓存 |
@@ -61,6 +62,7 @@ pip install -e path/to/JMComic-Crawler-Python
 - `NapCat ≥4.18.8` 起 **WebUI 默认密钥改为随机密码**（控制台查看）；本项目 `start.sh` 写 `webui.json` 的 `token` 字段仍可覆盖，已实测
 - **自动登录功能已按要求废除，勿再启用。** NapCat ≥4.18.15 虽原生支持 `webui.json` 的 `autoLoginAccount`（commit 31c45bf，取值优先级 `resolveAutoLoginAccount(环境变量 ACCOUNT, autoLoginAccount, lastLoginAccount)`），但 `start.sh` **刻意不写这个字段**——容器重启后一律人工扫码。这是有意决策，不是遗漏，勿"顺手补上"
 - `NapCat.Shell.zip` 在 Dockerfile 构建时已解压到 `/app/napcat/`，`start.sh` 仅在 `napcat.mjs` 缺失时兜底解压
+- **`PicImageSearch` 必须钉 `==3.12.0`，严禁升级到 3.12.10+**：那些版本把 lxml 约束收紧为 `<6.0.0`，而 `scrapling[fetchers]==0.4.12` 要求 `lxml>=6.1.1`，两者互斥 → pip `ResolutionImpossible` → **整个镜像构建失败**。2026-10-03 实测踩过：钉 `>=3.12.11` 时 HF 构建直接报冲突。3.12.0 声明的是无上限 `lxml>=5.3.1`，且用 `httpx`（复用已装的），3.12.11+ 换成了 `httpx2`，也一并不兼容。只有等 scrapling 放宽 lxml 下限后才可升级
 - Docker 中实际运行的 jmcomic 不是 `requirements.txt` 的版本：`pip install --force-reinstall --no-deps "jmcomic @ git+...@5a3f627"`（钉 commit，获取 P0 修复且保证可复现；升级 jmcomic 须改 commit 并跑上游 tests）
 - StealthyFetcher 需 Chromium：`ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright` 后 `pip install "playwright==1.61.0" "patchright==1.61.2" && python -m playwright install chromium && python -m patchright install chromium`（两个 install 都跑：patchright 与 playwright 的 chromium revision 可能不同，共用路径同 revision 幂等；路径必须与运行期一致——gosu napcat 的 HOME=/app，构建期默认 HOME=/root 会错位导致浏览器找不到）
 - **浏览器层在 pip 层之前**（只依赖 venv 层）：requirements.txt 变更不触发 Chromium 重下（省 ~2.5min/次）；apt 层一次性装齐 chromium 系统依赖（勿用 `install-deps`，它会再跑一轮 apt 下载 ubuntu 源，HF 构建器访问该源极慢）
@@ -218,7 +220,9 @@ pip install -e path/to/JMComic-Crawler-Python
 
 ### 限制与行为
 - 15 秒冷却 key = `f"{user_id}:{album_id}"`；单章 `p{photo_id}`、`rank:{period}`、`random`、`jmc:{album_id}:{page}`、`jmv:{album_id}`、`jms:{关键词}`、`mv:{归一化番号}`、`ss:{user_id}` 各自独立 key（help 无冷却；jmc 冷却含页码，否则翻页被冷却阻断；mv 冷却仅三源搜索占用，缓存命中翻页不占；ss 冷却按用户，无图时立即清冷却）
-- `/ss` 四源并行：Ascii2d（multipart `/search/file`→302 color 页→bovw 优先）、SoutuBot（`X-Api-Key = reverse(base64(ts²+uaLen²+m))` 轻量签名，m 从主页 JS 抓取，401/403 自动刷新重试一次）、trace.moe（`anilistInfo` 一次拿标题/EP/时间点，全局滑窗 100 次/时保护）、Yandex（URL 模式 `rpt=imageview&url=`，captcha 即静默降级）；单源失败互不影响（`_safe` 吞异常记日志）；JM 匹配取 Ascii2d/SoutuBot 首条标题 `search_site` 后给疑似 ID + `/jm <id>` 提示；全局 `Semaphore(2)`；UA 常量长度恒定（SoutuBot 签名依赖 uaLen）；nonebot `Message` 是 list 子类，图片提取按元素类型 duck-typing 区分 segment/dict
+- `/ss` 共 **5 路并发**：原生四源 Ascii2d（multipart `/search/file`→302 color 页→bovw 优先）、SoutuBot（`X-Api-Key = reverse(base64(ts²+uaLen²+m))` 轻量签名，m 从主页 JS 抓取，401/403 自动刷新重试一次）、trace.moe（`anilistInfo` 一次拿标题/EP/时间点，全局滑窗 100 次/时保护）、Yandex（URL 模式 `rpt=imageview&url=`，captcha 即静默降级）+ **增强源**（`sauce_engines.py`，SauceNAO/IQDB/E-Hentai，整体 40s 超时）。单源失败互不影响（`_safe` 吞异常记日志）；增强源**惰性 import**，PicImageSearch 缺失时返回 `[]`，原生四源照常工作
+- **增强源输出排在最前**：`── 精确匹配 (SauceNAO / IQDB) ──` 分组，置信度最高的一批不该被四源结果淹没。`similarity < 55%` 直接丢弃（低分多是「同色调不同图」的噪音）。有分数的按 similarity 降序在前，无分数的（E-Hentai）附后
+- JM 匹配候选标题：优先 Ascii2d/SoutuBot 首条标题；两者都没有时取增强源里 similarity 最高那条，再 `search_site` 给疑似 ID + `/jm <id>` 提示。全局 `Semaphore(2)`；UA 常量长度恒定（SoutuBot 签名依赖 uaLen）；nonebot `Message` 是 list 子类，图片提取按元素类型 duck-typing 区分 segment/dict
 - `/ss` 取图三级兜底：附图 url → 回复消息（`get_msg`→url 缺失时取 image `data.file` 调 OneBot `get_image` 换 url，仍不行读其返回的 NapCat 本地缓存路径——与 NoneBot 同容器直接读字节）→ 群最近图记忆（`_img_recorder` 被动 listener 实时缓存每群最近 5 张/TTL 120s，裸发 `/ss` 自动用）；回复取图失败**不降级**到最近图（用户意图指向特定图片）；历史消息图片常无 http url 是 NapCat 已知行为，勿删 get_image 兜底
 - 缓存文件带命名空间前缀：album=`a{id}.{ext}`、photo=`p{id}.pdf`（`_make_out_path` 由 `cache_prefix` 参数控制，导出侧 `filename_rule` 同步用 `a{Aid}`/`p{Pid}`），避免 photo_id 与 album_id 数字碰撞互串；上传显示名仍为 `JM{id}.{ext}`
 - 下载清理目标从实体推导，且**album 与 photo 不同**：album 用 `option.dir_rule.decide_album_root_dir(entity)`（整个专辑根，内含所有 Pid 子目录），photo 用 `option.decide_image_save_dir(entity)`（**只删自己那一个 Pid 子目录，不加 `.parent`**——加了就是专辑根，会连同其它章节一起删掉）。勿再按 entity_id 拼目录

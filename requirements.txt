@@ -7,6 +7,14 @@ img2pdf>=0.5.0,<1.0.0
 httpx>=0.28.0,<1.0.0
 scrapling[fetchers]==0.4.12
 # 以图搜源聚合器（MIT）：提供 SauceNAO/IQDB/E-Hentai/Google Lens 等 16 个引擎。
-# 与上面的 httpx 并存不冲突——PicImageSearch 自带 httpx2，互不影响。
 # 用途见 AGENTS.md「/ss 以图搜源」节。
-PicImageSearch>=3.12.11,<4.0.0
+#
+# **必须钉在 3.12.0，不要升到 3.12.10+**：那些版本把 lxml 上限收紧成 <6.0.0，
+# 而 scrapling[fetchers] 要求 lxml>=6.1.1，两者互斥会让 pip 报 ResolutionImpossible，
+# 整个镜像构建失败。3.12.0 声明的是无上限的 lxml>=5.3.1，可与 scrapling 共存。
+# 3.12.0 用 httpx（复用上面已装的），3.12.11+ 换成了 httpx2，也不再兼容。
+# 已用真实库核对过 3.12.0 的 API：Network 是 async context manager、
+# SauceNAO(api_key/numres/minsim)、三个引擎的 search() 均为 async、
+# SauceNAOItem/IqdbItem 有 similarity 而 EHentaiItem 没有——与本项目代码一致。
+# 若将来 scrapling 放宽 lxml 下限，才可考虑升级。
+PicImageSearch==3.12.0
